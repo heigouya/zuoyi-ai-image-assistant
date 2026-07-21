@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -84,6 +84,11 @@ test("local bridge serves the workbench and creates an isolated job", async () =
     assert.equal(created.status, "waiting_for_codex");
     assert.equal(created.images.length, 0);
     assert.ok(created.workspaceJobPath.startsWith(dataDir));
+
+    const prompt = await readFile(path.join(created.workspaceJobPath, "codex-prompt.txt"), "utf8");
+    assert.match(prompt, /Images output directory:/u);
+    assert.match(prompt, /generate real image candidates/u);
+    assert.match(prompt, /never create placeholders/u);
 
     const jobResponse = await fetch(`${url}/jobs/${created.id}`);
     assert.equal(jobResponse.status, 200);

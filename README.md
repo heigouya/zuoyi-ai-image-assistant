@@ -8,8 +8,8 @@ Codex 和本地 Skill 执行。
 - 多张产品图和参考图上传
 - 亚马逊主图与 A+ 套图任务
 - 本机任务队列和状态轮询
-- 每次提交都会创建一个可在 Codex 桌面侧边栏看到的新任务
-- 项目自带 `product-image-brief-planner` 表单验证 Skill
+- 每次提交都会创建一个可由 Codex 桌面打开的永久任务
+- 项目自带正式的 `product-image-brief-planner` 产品套图 Skill
 - Codex 提示词、`result.md` 和生成图片回传
 - Windows、macOS、Linux 使用同一套本地服务
 - 自动发现项目 Skill、`CODEX_HOME` Skill 和用户 Skill
@@ -52,10 +52,11 @@ skills/product-image-brief-planner/
 ```
 
 它会读取产品实拍图、产品名称、目标站点、采购链接、输出要求、参考图或链接、
-规格、配件清单和核心卖点，并在任务目录生成一份 `result.md` 产品图任务单。
-结果第一行会明确显示技能识别成功，方便验证网页确实调用了这个 Skill。
+规格、配件清单和核心卖点，生成正式分镜、中文文案、英文出图提示词和质检记录。
+当当前 Codex 任务具备图片生成能力时，候选图会写入任务的 `images/` 目录并回传网页；
+没有图片生成能力时只保留可直接执行的提示词，不会伪造占位图。
 
-## 换成正式出图 Skill
+## 换成其他出图 Skill
 
 将完整 Skill 文件夹放到以下任意位置：
 
@@ -75,7 +76,7 @@ LOCAL_SKILL_ID=amazon-image-a-plus-planner npm run local
 
 ## 验证网页确实调用了本机 Codex
 
-项目自带一个不生成图片的安全测试 Skill。macOS 双击：
+项目仍保留一个不生成图片的连接测试 Skill。macOS 双击：
 
 ```text
 test-local-codex.command
@@ -93,7 +94,7 @@ npm run local:test-codex
 - `local-codex-smoke-test` Skill
 - `本机 Codex 调用验证成功`
 
-测试会创建一个会出现在 Codex 桌面侧边栏中的真实任务，但不会生成图片。验证完成后
+测试会创建一个可在 Codex 桌面打开的真实任务，但不会生成图片。验证完成后
 按 `Ctrl+C` 关闭测试服务，再用正常启动脚本运行工作台。
 
 ## 本地配置
@@ -111,7 +112,11 @@ npm run local:test-codex
 | `OPEN_CODEX_DESKTOP_TASK` | `1` | 任务完成后自动在 Codex 桌面中打开；设为 `0` 可关闭 |
 
 网页通过 Codex `app-server` 创建永久任务，不使用 ephemeral 模式；因此新任务会与
-普通 Codex 桌面任务共用本机任务库存。
+普通 Codex 桌面任务共用本机任务库存。任务完成后网页会自动用深链接打开它。
+
+如果任务库存里存在但侧边栏没有显示，在 Codex 的 **Chats** 右侧打开筛选器并选择
+**Chronological（按时间）**；Codex 的侧边栏筛选会隐藏部分未固定任务。常用任务可以
+在 Codex 中手动固定。当前公开的 `app-server` 协议不负责桌面侧边栏的固定状态。
 
 任务结果保存在：
 
