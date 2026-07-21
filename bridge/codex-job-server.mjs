@@ -21,7 +21,8 @@ const maxConcurrency = Math.max(
 );
 const bundledSkillId = "product-image-brief-planner";
 const selectedSkillId = process.env.LOCAL_SKILL_ID || bundledSkillId;
-const executionMode = "codex-desktop-task";
+const backgroundExecutionMode = "codex-background-app-server";
+const visibleExecutionMode = "codex-desktop-native";
 const shouldOpenCodexDesktopTask = process.env.OPEN_CODEX_DESKTOP_TASK !== "0";
 const maxRequestBytes = 64 * 1024 * 1024;
 const maxImagesPerKind = 12;
@@ -74,16 +75,27 @@ function codexDesktopDeepLink(threadId) {
   return `codex://threads/${encodeURIComponent(threadId)}`;
 }
 
-function openCodexDesktopTask(threadId) {
-  if (!shouldOpenCodexDesktopTask || !threadId) return false;
+function codexDesktopNewThreadLink(jobDir, skillPath, productName) {
+  const promptPath = path.join(jobDir, "codex-prompt.txt");
+  const prompt = [
+    `Create and run the product-image job: ${String(productName || "未命名产品")}`,
+    `Read and follow the Skill file at: ${skillPath}`,
+    `Then execute the complete job instructions at: ${promptPath}`,
+    "Start the task now and keep every generated file inside the supplied job directory.",
+  ].join("\n");
+  const params = new URLSearchParams({ path: projectRoot, prompt });
+  return `codex://threads/new?${params.toString()}`;
+}
 
-  const deepLink = codexDesktopDeepLink(threadId);
+function openCodexDesktopLink(deepLink) {
+  if (!shouldOpenCodexDesktopTask || !deepLink) return false;
+
   const command =
     process.platform === "darwin"
       ? ["open", [deepLink]]
       : process.platform === "win32"
         ? ["cmd", ["/c", "start", "", deepLink]]
-        : null;
+        : ["xdg-open", [deepLink]];
   if (!command) return false;
 
   const opener = spawn(command[0], command[1], {
@@ -94,6 +106,10 @@ function openCodexDesktopTask(threadId) {
   opener.on("error", () => {});
   opener.unref();
   return true;
+}
+
+function openCodexDesktopTask(threadId) {
+  return openCodexDesktopLink(threadId ? codexDesktopDeepLink(threadId) : "");
 }
 
 function skillCandidates(skillId) {
@@ -364,17 +380,34 @@ async function writeJob(payload) {
     jobDir,
     skillPath || `[missing skill: ${selectedSkillId}]`,
   );
+  const launchMode = payload.launchMode === "background" ? "background" : "visible";
+  const visibleMode = launchMode === "visible";
+  const codexNewThreadDeepLink = visibleMode
+    ? codexDesktopNewThreadLink(
+        jobDir,
+        skillPath || `[missing skill: ${selectedSkillId}]`,
+        payload.productName,
+      )
+    : "";
   const job = {
     id,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    status: enableCodexExec ? "queued" : "waiting_for_codex",
-    message: enableCodexExec ? "任务已进入本机队列。" : "本机 Codex 执行已关闭。",
+    status: visibleMode ? "waiting_for_codex" : enableCodexExec ? "queued" : "waiting_for_codex",
+    message: visibleMode
+      ? "Codex 原生新任务已打开；请在 Codex 中点一次发送。"
+      : enableCodexExec
+        ? "任务已进入本机后台队列。"
+        : "本机 Codex 执行已关闭。",
     templateId: payload.templateId,
     templateName: payload.templateName,
     skillId: selectedSkillId,
     skillPath,
     skillExists: Boolean(skillPath),
+    launchMode,
+    executionMode: visibleMode ? visibleExecutionMode : backgroundExecutionMode,
+    codexNewThreadDeepLink,
+    codexDesktopOpened: visibleMode ? openCodexDesktopLink(codexNewThreadDeepLink) : false,
     payload: {
       productName: payload.productName,
       marketplace: payload.marketplace || "",
@@ -471,7 +504,9 @@ async function executeJob(job) {
         });
     };
 
-    updateJob(job.jobDir, { codexPid: child.pid, executionMode }).catch(() => {});
+    updateJob(job.jobDir, { codexPid: child.pid, executionMode: backgroundExecutionMode }).catch(
+      () => {},
+    );
 
     child.stdout.on("data", (chunk) => {
       writeFile(logPath, chunk, { flag: "a" }).catch(() => {});
@@ -619,22 +654,37 @@ function enqueueJob(job) {
 
 async function jobResponse(id) {
   const job = await readJob(id);
+  const resultMarkdown = await readResultMarkdown(id);
+  const images = await listJobImages(id);
+  const visibleMode = job.launchMode === "visible";
+  const visibleStatus = resultMarkdown
+    ? "completed"
+    : images.length > 0
+      ? "running"
+      : "waiting_for_codex";
+  const visibleMessage = resultMarkdown
+    ? "Codex 原生任务已完成，结果已回传网页。"
+    : images.length > 0
+      ? `Codex 原生任务正在执行，已回传 ${images.length} 张图片。`
+      : "Codex 原生新任务已打开；请切换到 Codex 并点一次发送。";
   return {
     id: job.id,
     skillId: job.skillId,
-    status: job.status,
-    message: job.message || "",
+    status: visibleMode ? visibleStatus : job.status,
+    message: visibleMode ? visibleMessage : job.message || "",
     codexThreadId: job.codexThreadId || "",
     codexTurnId: job.codexTurnId || "",
     codexTaskTitle: job.codexTaskTitle || "",
     codexDeepLink:
       job.codexDeepLink || (job.codexThreadId ? codexDesktopDeepLink(job.codexThreadId) : ""),
+    codexNewThreadDeepLink: job.codexNewThreadDeepLink || "",
     codexDesktopOpened: Boolean(job.codexDesktopOpened),
-    executionMode: job.executionMode || executionMode,
+    executionMode:
+      job.executionMode || (visibleMode ? visibleExecutionMode : backgroundExecutionMode),
     codexPrompt: job.codexPrompt,
     workspaceJobPath: job.workspaceJobPath,
-    resultMarkdown: await readResultMarkdown(id),
-    images: await listJobImages(id),
+    resultMarkdown,
+    images,
   };
 }
 
@@ -647,7 +697,8 @@ const server = createServer(async (request, response) => {
       return json(response, 200, {
         ok: true,
         mode: "local-codex",
-        executionMode,
+        executionMode: backgroundExecutionMode,
+        availableExecutionModes: [visibleExecutionMode, backgroundExecutionMode],
         openCodexDesktopTask: shouldOpenCodexDesktopTask,
         enableCodexExec,
         maxConcurrency,
@@ -720,7 +771,7 @@ const server = createServer(async (request, response) => {
       }
 
       const job = await writeJob(payload);
-      if (enableCodexExec) enqueueJob(job);
+      if (enableCodexExec && payload.launchMode === "background") enqueueJob(job);
       return json(response, 200, await jobResponse(job.id));
     }
 

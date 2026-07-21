@@ -191,6 +191,36 @@
         padding-top: 16px;
       }
 
+      .execution-choice {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .execution-choice label {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #f7f3ed;
+        cursor: pointer;
+      }
+
+      .execution-choice input {
+        width: auto;
+        height: auto;
+        margin: 3px 0 0;
+      }
+
+      .execution-choice small {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-weight: 500;
+      }
+
       .upload {
         display: flex;
         align-items: center;
@@ -457,6 +487,10 @@
       }
 
       @media (max-width: 640px) {
+        .execution-choice {
+          grid-template-columns: 1fr;
+        }
+
         .shell {
           width: min(100vw - 20px, 1480px);
         }
@@ -687,6 +721,17 @@
 
         const actions = document.createElement("div");
         actions.className = "form-actions";
+        actions.innerHTML = `
+          <div class="execution-choice" aria-label="Codex 执行方式">
+            <label>
+              <input type="radio" name="launchMode" value="visible" checked />
+              <span>Codex 可见任务<small>会进入原生新任务；需在 Codex 点一次发送</small></span>
+            </label>
+            <label>
+              <input type="radio" name="launchMode" value="background" />
+              <span>全自动后台<small>自动执行，但不保证显示在桌面侧边栏</small></span>
+            </label>
+          </div>`;
         actions.append(submitButton);
         form.append(actions);
       }
@@ -865,6 +910,11 @@
                   : ""
               }
               ${
+                data.codexNewThreadDeepLink
+                  ? `<p><a href="${escapeHtml(data.codexNewThreadDeepLink)}">在 Codex 中创建可见新任务</a></p>`
+                  : ""
+              }
+              ${
                 data.codexDeepLink
                   ? `<p><a href="${escapeHtml(data.codexDeepLink)}">在 Codex 中打开这个任务</a></p>`
                   : ""
@@ -901,7 +951,7 @@
           const data = await response.json();
           if (!response.ok) throw new Error(data.message || "查询任务失败");
           renderJobResult(data);
-          if (!["queued", "running"].includes(data.status)) return;
+          if (!["waiting_for_codex", "queued", "running"].includes(data.status)) return;
         }
       }
 
@@ -932,6 +982,7 @@
           accessories: formData.get("accessories"),
           sellingPoints: formData.get("sellingPoints"),
           outputMode: formData.get("outputMode"),
+          launchMode: formData.get("launchMode") || "visible",
           productImages: imagePayloads,
           productImage: imagePayloads.length > 0 ? imagePayloads[0] : null,
         };
@@ -945,7 +996,9 @@
           const data = await response.json();
           if (!response.ok) throw new Error(data.message || "任务创建失败");
           renderJobResult(data);
-          if (["queued", "running"].includes(data.status)) await pollJob(data.id);
+          if (["waiting_for_codex", "queued", "running"].includes(data.status)) {
+            await pollJob(data.id);
+          }
         } catch (error) {
           resultStatus.textContent = "failed";
           resultBox.innerHTML = `<div class="warn">${escapeHtml(error.message)}</div>`;

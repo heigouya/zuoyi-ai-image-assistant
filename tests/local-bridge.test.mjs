@@ -72,6 +72,7 @@ test("local bridge serves the workbench and creates an isolated job", async () =
       sellingPoints: "耐用，易安装",
       productImages: [],
       referenceImages: [],
+      launchMode: "background",
     };
     const createResponse = await fetch(`${url}/jobs`, {
       method: "POST",
@@ -148,6 +149,7 @@ test("local bridge creates a persistent desktop task with an explicit project sk
       sellingPoints: "防水，易安装",
       productImages: [],
       referenceImages: [],
+      launchMode: "background",
     };
     const createResponse = await fetch(`${url}/jobs`, {
       method: "POST",
@@ -166,7 +168,7 @@ test("local bridge creates a persistent desktop task with an explicit project sk
     }
 
     assert.equal(completed.status, "completed");
-    assert.equal(completed.executionMode, "codex-desktop-task");
+    assert.equal(completed.executionMode, "codex-background-app-server");
     assert.equal(completed.skillId, "product-image-brief-planner");
     assert.equal(completed.codexThreadId, "019f0000-0000-7000-8000-000000000001");
     assert.equal(completed.codexTurnId, "turn_fake_1");
@@ -176,6 +178,47 @@ test("local bridge creates a persistent desktop task with an explicit project sk
       "codex://threads/019f0000-0000-7000-8000-000000000001",
     );
     assert.equal(completed.codexDesktopOpened, false);
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.once("exit", resolve));
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("visible mode opens a native Codex composer without starting a background thread", async () => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "zuoyi-visible-task-test-"));
+  const { child, url } = await startBridge(dataDir, { ENABLE_CODEX_EXEC: "1" });
+
+  try {
+    const payload = {
+      templateId: "amazon-a-plus-suite",
+      templateName: "$product-image-brief-planner",
+      skillId: "product-image-brief-planner",
+      productName: "原生侧边栏测试",
+      marketplace: "美国",
+      sellingPoints: "轻便",
+      launchMode: "visible",
+      productImages: [],
+      referenceImages: [],
+    };
+    const response = await fetch(`${url}/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: url },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 200);
+    const created = await response.json();
+
+    assert.equal(created.status, "waiting_for_codex");
+    assert.equal(created.executionMode, "codex-desktop-native");
+    assert.equal(created.codexThreadId, "");
+    assert.match(created.codexNewThreadDeepLink, /^codex:\/\/threads\/new\?/u);
+    assert.match(
+      decodeURIComponent(created.codexNewThreadDeepLink),
+      /product-image-brief-planner\/SKILL\.md/u,
+    );
+    assert.match(decodeURIComponent(created.codexNewThreadDeepLink), /原生侧边栏测试/u);
+    assert.match(decodeURIComponent(created.codexNewThreadDeepLink), /codex-prompt\.txt/u);
   } finally {
     child.kill("SIGTERM");
     await new Promise((resolve) => child.once("exit", resolve));
