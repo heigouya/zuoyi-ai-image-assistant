@@ -864,6 +864,11 @@
                   ? `<p><strong>Codex 桌面任务 ID：</strong>${escapeHtml(data.codexThreadId)}</p>`
                   : ""
               }
+              ${
+                data.codexDeepLink
+                  ? `<p><a href="${escapeHtml(data.codexDeepLink)}">在 Codex 中打开这个任务</a></p>`
+                  : ""
+              }
               <p><strong>状态：</strong>${escapeHtml(data.message || data.status)}</p>
               <p><strong>目录：</strong>${escapeHtml(data.workspaceJobPath)}</p>
             </div>

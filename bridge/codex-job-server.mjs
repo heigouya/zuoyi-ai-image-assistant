@@ -22,6 +22,7 @@ const maxConcurrency = Math.max(
 const bundledSkillId = "product-image-brief-planner";
 const selectedSkillId = process.env.LOCAL_SKILL_ID || bundledSkillId;
 const executionMode = "codex-desktop-task";
+const shouldOpenCodexDesktopTask = process.env.OPEN_CODEX_DESKTOP_TASK !== "0";
 const maxRequestBytes = 64 * 1024 * 1024;
 const maxImagesPerKind = 12;
 const maxImageBytes = 12 * 1024 * 1024;
@@ -67,6 +68,32 @@ function resolveCodexBin() {
         : [];
 
   return firstExisting(platformCandidates) || "codex";
+}
+
+function codexDesktopDeepLink(threadId) {
+  return `codex://threads/${encodeURIComponent(threadId)}`;
+}
+
+function openCodexDesktopTask(threadId) {
+  if (!shouldOpenCodexDesktopTask || !threadId) return false;
+
+  const deepLink = codexDesktopDeepLink(threadId);
+  const command =
+    process.platform === "darwin"
+      ? ["open", [deepLink]]
+      : process.platform === "win32"
+        ? ["cmd", ["/c", "start", "", deepLink]]
+        : null;
+  if (!command) return false;
+
+  const opener = spawn(command[0], command[1], {
+    detached: true,
+    shell: false,
+    stdio: "ignore",
+  });
+  opener.on("error", () => {});
+  opener.unref();
+  return true;
 }
 
 function skillCandidates(skillId) {
@@ -516,6 +543,7 @@ async function executeJob(job) {
       await updateJob(job.jobDir, {
         codexThreadId,
         codexTaskTitle,
+        codexDeepLink: codexDesktopDeepLink(codexThreadId),
         message: `Codex 桌面任务“${codexTaskTitle}”已创建，正在执行 Skill。`,
       });
 
@@ -552,6 +580,7 @@ async function executeJob(job) {
               ? "Codex 桌面任务已完成，图片已返回。"
               : "Codex 桌面任务已完成，请查看 result.md。"
           : `Codex 桌面任务未成功完成：${turn.error?.message || turn.status || "未知状态"}`,
+        codexDesktopOpened: openCodexDesktopTask(codexThreadId),
       });
       settled = true;
       child.kill("SIGTERM");
@@ -593,6 +622,9 @@ async function jobResponse(id) {
     codexThreadId: job.codexThreadId || "",
     codexTurnId: job.codexTurnId || "",
     codexTaskTitle: job.codexTaskTitle || "",
+    codexDeepLink:
+      job.codexDeepLink || (job.codexThreadId ? codexDesktopDeepLink(job.codexThreadId) : ""),
+    codexDesktopOpened: Boolean(job.codexDesktopOpened),
     executionMode: job.executionMode || executionMode,
     codexPrompt: job.codexPrompt,
     workspaceJobPath: job.workspaceJobPath,
@@ -611,6 +643,7 @@ const server = createServer(async (request, response) => {
         ok: true,
         mode: "local-codex",
         executionMode,
+        openCodexDesktopTask: shouldOpenCodexDesktopTask,
         enableCodexExec,
         maxConcurrency,
         activeJobs,

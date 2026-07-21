@@ -16,6 +16,7 @@ async function startBridge(dataDir, extraEnv = {}) {
       CODEX_JOB_BRIDGE_PORT: "0",
       ENABLE_CODEX_EXEC: "0",
       LOCAL_JOB_DATA_DIR: dataDir,
+      OPEN_CODEX_DESKTOP_TASK: "0",
       ...extraEnv,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -165,6 +166,11 @@ test("local bridge creates a persistent desktop task with an explicit project sk
     assert.equal(completed.codexThreadId, "019f0000-0000-7000-8000-000000000001");
     assert.equal(completed.codexTurnId, "turn_fake_1");
     assert.equal(completed.codexTaskTitle, "网页产品图：可见任务测试");
+    assert.equal(
+      completed.codexDeepLink,
+      "codex://threads/019f0000-0000-7000-8000-000000000001",
+    );
+    assert.equal(completed.codexDesktopOpened, false);
   } finally {
     child.kill("SIGTERM");
     await new Promise((resolve) => child.once("exit", resolve));

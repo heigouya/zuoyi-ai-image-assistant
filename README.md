@@ -108,6 +108,7 @@ npm run local:test-codex
 | `LOCAL_MAX_CONCURRENCY` | `1` | 本机最大并发任务数，最高 4 |
 | `CODEX_JOB_BRIDGE_PORT` | `48721` | 本地工作台端口 |
 | `ENABLE_CODEX_EXEC` | `1` | 设为 `0` 时只创建任务，不执行 Codex |
+| `OPEN_CODEX_DESKTOP_TASK` | `1` | 任务完成后自动在 Codex 桌面中打开；设为 `0` 可关闭 |
 
 网页通过 Codex `app-server` 创建永久任务，不使用 ephemeral 模式；因此新任务会与
 普通 Codex 桌面任务共用本机任务库存。
