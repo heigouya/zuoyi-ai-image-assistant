@@ -1,0 +1,935 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>佐易-AI图像助理</title>
+    <style>
+      :root {
+        --bg: #f6f2ea;
+        --panel: #fffdfa;
+        --ink: #17211d;
+        --muted: #617064;
+        --line: #d7cec0;
+        --brand: #1d4037;
+        --soft: #e6efe7;
+        --warn: #8d4b16;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Microsoft YaHei", Arial, sans-serif;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      .shell {
+        width: min(1480px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 18px 0 28px;
+      }
+
+      header {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        align-items: flex-end;
+        padding-bottom: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        margin-top: 8px;
+        font-size: clamp(30px, 4vw, 46px);
+        letter-spacing: 0;
+      }
+
+      .eyebrow {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .intro {
+        margin-top: 10px;
+        max-width: 760px;
+        color: var(--muted);
+        line-height: 1.7;
+        font-size: 14px;
+      }
+
+      .status-pill {
+        min-width: 220px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 8px;
+        padding: 12px 14px;
+        font-size: 14px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr) 360px;
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .card,
+      .module,
+      .result-card {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 8px;
+      }
+
+      .module {
+        width: 100%;
+        padding: 16px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .module + .module {
+        margin-top: 10px;
+      }
+
+      .module.active {
+        border-color: var(--brand);
+        background: var(--soft);
+      }
+
+      .module-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .module-title {
+        font-weight: 700;
+        font-size: 16px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        border-radius: 6px;
+        background: #f0ebe3;
+        padding: 2px 8px;
+        color: #574f45;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .module-desc {
+        margin-top: 10px;
+        color: var(--muted);
+        line-height: 1.65;
+        font-size: 14px;
+      }
+
+      .card {
+        padding: 18px;
+      }
+
+      .card + .card {
+        margin-top: 14px;
+      }
+
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      .job-layout {
+        display: grid;
+        grid-template-columns: minmax(300px, 0.9fr) minmax(360px, 1.1fr);
+        gap: 18px;
+        align-items: stretch;
+      }
+
+      .media-column {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        padding-top: 0;
+      }
+
+      .form-actions {
+        border-top: 1px solid var(--line);
+        padding-top: 16px;
+      }
+
+      .upload {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 280px;
+        border: 1px dashed #aaa193;
+        border-radius: 8px;
+        background: #f2eee7;
+        overflow: hidden;
+        color: #665f56;
+        text-align: center;
+        cursor: pointer;
+      }
+
+      .upload.compact {
+        min-height: 92px;
+      }
+
+      .media-column .upload.compact {
+        min-height: 220px;
+      }
+
+      .upload img {
+        max-width: 100%;
+        max-height: 320px;
+        object-fit: contain;
+      }
+
+      .upload.has-images {
+        align-items: stretch;
+        justify-content: flex-start;
+        padding: 10px;
+      }
+
+      .preview-grid {
+        display: grid;
+        width: 100%;
+        grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+        gap: 10px;
+        align-content: start;
+      }
+
+      .preview-item {
+        position: relative;
+        aspect-ratio: 1;
+        border: 1px solid #d3cabd;
+        border-radius: 7px;
+        background: #fffdfa;
+        overflow: hidden;
+      }
+
+      .preview-item img {
+        width: 100%;
+        height: 100%;
+        max-width: none;
+        max-height: none;
+        object-fit: cover;
+      }
+
+      .remove-image {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        width: 24px;
+        height: 24px;
+        border: 0;
+        border-radius: 50%;
+        background: rgba(29, 64, 55, 0.92);
+        color: white;
+        line-height: 24px;
+        font-size: 16px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .field-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+        align-self: start;
+        padding-top: 0;
+      }
+
+      .field-grid > label:first-child span {
+        margin-top: 0;
+      }
+
+      .reference-card {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .switch {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        border: 1px solid #cbc3b7;
+        border-radius: 7px;
+        background: #f6f2ea;
+        padding: 4px;
+      }
+
+      .switch button {
+        min-height: 34px;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: #5f685f;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .switch button.active {
+        background: var(--brand);
+        color: white;
+      }
+
+      label span {
+        display: block;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        margin-top: 8px;
+        border: 1px solid #cbc3b7;
+        border-radius: 7px;
+        background: white;
+        color: var(--ink);
+        outline: none;
+      }
+
+      input {
+        height: 48px;
+        padding: 0 12px;
+      }
+
+      textarea {
+        height: 48px;
+        min-height: 48px;
+        resize: none;
+        padding: 10px 12px;
+        line-height: 1.6;
+      }
+
+      .primary {
+        width: 100%;
+        height: 46px;
+        margin-top: 14px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--brand);
+        color: white;
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      .primary:disabled {
+        background: #94a39b;
+        cursor: not-allowed;
+      }
+
+      .hint {
+        margin-top: 12px;
+        color: var(--muted);
+        line-height: 1.65;
+        font-size: 13px;
+      }
+
+      .dark {
+        background: #1f2b25;
+        color: white;
+      }
+
+      .dark p {
+        color: #dfe7df;
+        line-height: 1.7;
+        font-size: 14px;
+      }
+
+      .result-card {
+        padding: 14px;
+      }
+
+      .result-meta {
+        border-radius: 8px;
+        background: #f2eee7;
+        padding: 12px;
+        line-height: 1.7;
+        font-size: 13px;
+      }
+
+      .images {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .images img {
+        width: 100%;
+        aspect-ratio: 1;
+        border: 1px solid #ded6ca;
+        border-radius: 8px;
+        object-fit: cover;
+        background: #fbfaf7;
+      }
+
+      details {
+        margin-top: 12px;
+        border: 1px solid #ded6ca;
+        border-radius: 8px;
+        background: #fbfaf7;
+        padding: 12px;
+      }
+
+      summary {
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      pre {
+        max-height: 300px;
+        overflow: auto;
+        white-space: pre-wrap;
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .empty {
+        color: var(--muted);
+        line-height: 1.7;
+        font-size: 14px;
+      }
+
+      .warn {
+        margin-top: 12px;
+        border-radius: 8px;
+        background: #fff3e8;
+        color: var(--warn);
+        padding: 12px;
+        line-height: 1.6;
+        font-size: 14px;
+      }
+
+      @media (max-width: 1100px) {
+        header,
+        .grid,
+        form,
+        .job-layout {
+          grid-template-columns: 1fr;
+        }
+
+        header {
+          align-items: stretch;
+        }
+
+        .field-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .shell {
+          width: min(100vw - 20px, 1480px);
+        }
+
+        .field-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <div>
+          <p class="eyebrow">Zuoyi Image Assistant</p>
+          <h1>佐易-AI图像助理</h1>
+          <p class="intro">
+            这是一个本地 AI 出图工作台。先把“亚马逊套图生成”跑通，后续可以继续接入白底渲染、扩图、精修、成品套图等模块。
+          </p>
+        </div>
+        <div class="status-pill">
+          <strong>工作台状态：</strong><span id="bridgeStatus">检查中</span>
+        </div>
+      </header>
+
+      <div class="grid">
+        <aside id="moduleList"></aside>
+
+        <section>
+          <section class="card">
+            <h2 id="moduleTitle">亚马逊套图生成</h2>
+            <p class="hint" id="moduleDescription"></p>
+            <p class="hint"><strong>绑定技能：</strong><span id="moduleSkill"></span></p>
+          </section>
+
+          <section class="card" id="amazonPanel">
+            <form id="jobForm">
+              <div>
+                <label>
+                  <span>产品实拍图</span>
+                  <div class="upload" id="uploadBox">
+                    <span id="uploadHint">点击上传产品图，多角度最佳</span>
+                    <div class="preview-grid" id="productPreviewGrid" hidden></div>
+                  </div>
+                  <input id="productImage" type="file" accept="image/*" multiple hidden />
+                </label>
+                <button class="primary" id="submitButton" type="submit">
+                  提交到工作台
+                </button>
+              </div>
+
+              <div class="field-grid">
+                <label>
+                  <span>产品名称</span>
+                  <input name="productName" />
+                </label>
+                <label>
+                  <span>目标站点</span>
+                  <input name="marketplace" placeholder="美国、德国、英国、、、、" />
+                </label>
+                <label>
+                  <span>采购链接</span>
+                  <input name="sourceLink" placeholder="1688链接、可空" />
+                </label>
+                <label>
+                  <span>输出要求</span>
+                  <input name="outputMode" placeholder="7 张主图/7张高级A+/7张普通A+" />
+                </label>
+                <div class="reference-card">
+                  <label>
+                    <span>参考图或产品链接</span>
+                  </label>
+                  <div class="switch" aria-label="选择参考资料类型">
+                    <button class="active" id="referenceImageMode" type="button">
+                      上传参考图
+                    </button>
+                    <button id="referenceLinkMode" type="button">参考链接</button>
+                  </div>
+                  <div class="upload compact" id="referenceUploadBox">
+                    <span id="referenceUploadHint">点击上传参考图</span>
+                    <div class="preview-grid" id="referencePreviewGrid" hidden></div>
+                  </div>
+                  <input id="referenceImage" type="file" accept="image/*" multiple hidden />
+                  <textarea
+                    id="referenceLinkInput"
+                    name="competitorLinks"
+                    placeholder="粘贴产品链接或参考链接"
+                    hidden
+                  ></textarea>
+                </div>
+                <label>
+                  <span>规格</span>
+                  <textarea name="specs" placeholder="产品尺寸、产品材质、、、"></textarea>
+                </label>
+                <label>
+                  <span>配件清单</span>
+                  <textarea name="accessories" placeholder="如果不需要出现其他配件，可空"></textarea>
+                </label>
+                <label>
+                  <span>核心卖点</span>
+                  <textarea name="sellingPoints"></textarea>
+                </label>
+              </div>
+            </form>
+          </section>
+
+          <section class="card" id="reservedPanel" hidden>
+            <h3>模块插槽已预留</h3>
+            <p class="hint">
+              后续上传这个模块对应的模板配置后，它会复用同一套工作台流程：选择模块、上传参数、创建 job、调用 Codex、返回图片。
+            </p>
+          </section>
+        </section>
+
+        <aside>
+          <section class="card dark">
+            <h2>怎么使用</h2>
+            <p>1. 启动 bridge。</p>
+            <p>2. 打开这个工作台。</p>
+            <p>3. 选择模块，填写参数。</p>
+            <p>4. 提交后查看右侧结果。</p>
+          </section>
+
+          <section class="result-card">
+            <div class="module-head">
+              <h2>结果</h2>
+              <span class="tag" id="resultStatus">idle</span>
+            </div>
+            <div id="resultBox" class="empty">
+              提交第一个任务后，这里会显示 job 信息、候选图和 Codex 提示词。
+            </div>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <script>
+      const amazonSkillId = "amazon-image-a-plus-planner";
+
+      const modules = [
+        {
+          id: "amazon-a-plus-suite",
+          title: "亚马逊套图生成",
+          skillName: "$amazon-image-a-plus-planner",
+          skillId: amazonSkillId,
+          status: "已接入",
+          description:
+            "上传产品图和商品参数，创建 Codex 任务，输出主图、卖点图和 A+ 模块候选图。",
+          outputs: ["7 张主图", "A+ 桌面模块", "A+ 手机模块", "Image Gen 候选图"],
+        },
+        {
+          id: "scene-generation",
+          title: "场景生成",
+          skillName: "待上传模板",
+          status: "预留",
+          description: "上传产品图，需要的图片尺寸，生成适配的产品场景",
+          outputs: ["产品场景", "尺寸适配", "背景生成"],
+        },
+        {
+          id: "white-bg-render",
+          title: "精修/渲染图",
+          skillName: "待上传模板",
+          status: "预留",
+          description: "把实拍图处理成高质感白底电商精修图或3D渲染图，保留轮廓和材质。",
+          outputs: ["白底图", "材质增强", "阴影校正"],
+        },
+        {
+          id: "image-extension",
+          title: "智能扩图",
+          skillName: "待上传模板",
+          status: "预留",
+          description: "一键无缝扩展，打破视觉边界，释放每一张照片的无限可能~",
+          outputs: ["1:1", "16:9", "4:5", "A+ 横图"],
+        },
+        {
+          id: "image-upscale",
+          title: "高清放大",
+          skillName: "待上传模板",
+          status: "预留",
+          description: "放大清晰不失真，细节更丰富",
+          outputs: ["2x", "4x", "细节增强"],
+        },
+      ];
+
+      let activeModule = modules[0];
+      let imagePayloads = [];
+      let referencePayloads = [];
+      let referenceMode = "image";
+
+      const moduleList = document.querySelector("#moduleList");
+      const moduleTitle = document.querySelector("#moduleTitle");
+      const moduleDescription = document.querySelector("#moduleDescription");
+      const moduleSkill = document.querySelector("#moduleSkill");
+      const amazonPanel = document.querySelector("#amazonPanel");
+      const reservedPanel = document.querySelector("#reservedPanel");
+      const form = document.querySelector("#jobForm");
+      const submitButton = document.querySelector("#submitButton");
+      const resultStatus = document.querySelector("#resultStatus");
+      const resultBox = document.querySelector("#resultBox");
+      const fileInput = document.querySelector("#productImage");
+      const uploadBox = document.querySelector("#uploadBox");
+      const uploadHint = document.querySelector("#uploadHint");
+      const productPreviewGrid = document.querySelector("#productPreviewGrid");
+      const referenceImageMode = document.querySelector("#referenceImageMode");
+      const referenceLinkMode = document.querySelector("#referenceLinkMode");
+      const referenceUploadBox = document.querySelector("#referenceUploadBox");
+      const referenceUploadHint = document.querySelector("#referenceUploadHint");
+      const referencePreviewGrid = document.querySelector("#referencePreviewGrid");
+      const referenceInput = document.querySelector("#referenceImage");
+      const referenceLinkInput = document.querySelector("#referenceLinkInput");
+
+      function arrangeJobForm() {
+        const productColumn = uploadBox.closest("label").parentElement;
+        const referenceCard = document.querySelector(".reference-card");
+        const fieldGrid = document.querySelector(".field-grid");
+
+        const jobLayout = document.createElement("div");
+        jobLayout.className = "job-layout";
+        form.insertBefore(jobLayout, fieldGrid);
+
+        const mediaColumn = document.createElement("div");
+        mediaColumn.className = "media-column";
+        mediaColumn.append(productColumn);
+        mediaColumn.append(referenceCard);
+
+        jobLayout.append(mediaColumn);
+        jobLayout.append(fieldGrid);
+
+        const actions = document.createElement("div");
+        actions.className = "form-actions";
+        actions.append(submitButton);
+        form.append(actions);
+      }
+
+      function setReferenceMode(nextMode) {
+        referenceMode = nextMode;
+        const isImage = referenceMode === "image";
+        referenceImageMode.classList.toggle("active", isImage);
+        referenceLinkMode.classList.toggle("active", !isImage);
+        referenceUploadBox.hidden = !isImage;
+        referenceInput.hidden = true;
+        referenceLinkInput.hidden = isImage;
+        if (isImage) {
+          referenceLinkInput.blur();
+        }
+      }
+
+      function renderModules() {
+        moduleList.innerHTML = modules
+          .map(
+            (module) => `
+              <button class="module ${module.id === activeModule.id ? "active" : ""}" data-id="${module.id}">
+                <div class="module-head">
+                  <span class="module-title">${module.title}</span>
+                  <span class="tag">${module.status}</span>
+                </div>
+                <p class="module-desc">${module.description}</p>
+              </button>
+            `,
+          )
+          .join("");
+
+        moduleList.querySelectorAll(".module").forEach((button) => {
+          button.addEventListener("click", () => {
+            activeModule = modules.find((module) => module.id === button.dataset.id);
+            render();
+          });
+        });
+      }
+
+      function render() {
+        renderModules();
+        moduleTitle.textContent = activeModule.title;
+        moduleDescription.textContent = activeModule.description;
+        moduleSkill.textContent = activeModule.skillName;
+        amazonPanel.hidden = activeModule.id !== "amazon-a-plus-suite";
+        reservedPanel.hidden = activeModule.id === "amazon-a-plus-suite";
+      }
+
+      async function checkBridge() {
+        try {
+          const response = await fetch("/health");
+          const data = await response.json();
+          document.querySelector("#bridgeStatus").textContent = !data.ok
+            ? "未连接"
+            : data.skillAvailable
+              ? "已连接"
+              : "已连接，Skill 未安装";
+        } catch {
+          document.querySelector("#bridgeStatus").textContent = "未连接";
+        }
+      }
+
+      const escapeHtml = (value) =>
+        String(value || "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+
+      function readImageFile(file) {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            resolve({
+              id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+              name: file.name,
+              dataUrl: String(reader.result),
+            });
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function renderImageList(list, grid, hint, box, removeImage) {
+        const hasImages = list.length > 0;
+        hint.hidden = hasImages;
+        grid.hidden = !hasImages;
+        box.classList.toggle("has-images", hasImages);
+        grid.innerHTML = list
+          .map(
+            (item) => `
+              <div class="preview-item">
+                <img src="${item.dataUrl}" alt="${escapeHtml(item.name)}" />
+                <button class="remove-image" type="button" data-id="${item.id}" aria-label="删除图片">×</button>
+              </div>
+            `,
+          )
+          .join("");
+        grid.querySelectorAll(".remove-image").forEach((button) => {
+          button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            removeImage(button.dataset.id);
+          });
+        });
+      }
+
+      async function addFiles(files, list, renderList) {
+        const selected = Array.from(files || []);
+        if (selected.length === 0) return;
+        const nextItems = await Promise.all(selected.map(readImageFile));
+        list.push(...nextItems);
+        renderList();
+      }
+
+      function renderProductImages() {
+        renderImageList(imagePayloads, productPreviewGrid, uploadHint, uploadBox, (id) => {
+          imagePayloads = imagePayloads.filter((item) => item.id !== id);
+          renderProductImages();
+        });
+      }
+
+      function renderReferenceImages() {
+        renderImageList(
+          referencePayloads,
+          referencePreviewGrid,
+          referenceUploadHint,
+          referenceUploadBox,
+          (id) => {
+            referencePayloads = referencePayloads.filter((item) => item.id !== id);
+            renderReferenceImages();
+          },
+        );
+      }
+
+      uploadBox.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", async () => {
+        await addFiles(fileInput.files, imagePayloads, renderProductImages);
+        fileInput.value = "";
+      });
+
+      referenceImageMode.addEventListener("click", () => setReferenceMode("image"));
+      referenceLinkMode.addEventListener("click", () => setReferenceMode("link"));
+      referenceUploadBox.addEventListener("click", () => referenceInput.click());
+      referenceInput.addEventListener("change", async () => {
+        await addFiles(referenceInput.files, referencePayloads, renderReferenceImages);
+        referenceInput.value = "";
+      });
+
+      function renderJobResult(data) {
+        resultStatus.textContent = data.status;
+        const images = Array.isArray(data.images) ? data.images : [];
+        resultBox.innerHTML = `
+            <div class="result-meta">
+              <p><strong>Job ID：</strong>${escapeHtml(data.id)}</p>
+              ${
+                data.codexThreadId
+                  ? `<p><strong>Codex 任务：</strong>${escapeHtml(data.codexThreadId)}</p>`
+                  : ""
+              }
+              <p><strong>状态：</strong>${escapeHtml(data.message || data.status)}</p>
+              <p><strong>目录：</strong>${escapeHtml(data.workspaceJobPath)}</p>
+            </div>
+            ${
+              images.length > 0
+                ? `<div class="images">${images
+                    .map((image) => `<img src="${image}" alt="候选图" />`)
+                    .join("")}</div>`
+                : '<p class="empty">还没有真实生成图片。图片生成后会自动出现在这里。</p>'
+            }
+            ${
+              data.resultMarkdown
+                ? `<details open>
+                    <summary>查看 result.md</summary>
+                    <pre>${escapeHtml(data.resultMarkdown)}</pre>
+                  </details>`
+                : ""
+            }
+            <details>
+              <summary>查看 Codex 提示词</summary>
+              <pre>${escapeHtml(data.codexPrompt)}</pre>
+            </details>
+          `;
+      }
+
+      async function pollJob(id) {
+        for (let index = 0; index < 600; index += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          const response = await fetch(`/jobs/${encodeURIComponent(id)}`);
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || "查询任务失败");
+          renderJobResult(data);
+          if (!["queued", "running"].includes(data.status)) return;
+        }
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        submitButton.disabled = true;
+        submitButton.textContent = "正在创建任务...";
+        resultStatus.textContent = "creating";
+        resultBox.innerHTML = '<p class="empty">正在创建 job，请稍等。</p>';
+
+        const formData = new FormData(form);
+        const payload = {
+          templateId: activeModule.id,
+          templateName: activeModule.skillName,
+          skillId: activeModule.skillId || "",
+          productName: formData.get("productName"),
+          marketplace: formData.get("marketplace"),
+          sourceLink: formData.get("sourceLink"),
+          competitorLinks:
+            referenceMode === "link" ? formData.get("competitorLinks") : "",
+          referenceMode,
+          referenceImages: referenceMode === "image" ? referencePayloads : [],
+          referenceImage:
+            referenceMode === "image" && referencePayloads.length > 0
+              ? referencePayloads[0]
+              : null,
+          specs: formData.get("specs"),
+          accessories: formData.get("accessories"),
+          sellingPoints: formData.get("sellingPoints"),
+          outputMode: formData.get("outputMode"),
+          productImages: imagePayloads,
+          productImage: imagePayloads.length > 0 ? imagePayloads[0] : null,
+        };
+
+        try {
+          const response = await fetch("/jobs", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || "任务创建失败");
+          renderJobResult(data);
+          if (["queued", "running"].includes(data.status)) await pollJob(data.id);
+        } catch (error) {
+          resultStatus.textContent = "failed";
+          resultBox.innerHTML = `<div class="warn">${escapeHtml(error.message)}</div>`;
+        } finally {
+          submitButton.disabled = false;
+          submitButton.textContent = "提交到工作台";
+        }
+      });
+
+      arrangeJobForm();
+      render();
+      checkBridge();
+    </script>
+  </body>
+</html>
