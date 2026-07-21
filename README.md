@@ -55,6 +55,29 @@ skills/amazon-image-a-plus-planner/
 也可以通过 `CODEX_SKILLS_DIR` 指定 Skill 根目录。开发包目前没有包含原作者的
 Skill，需要从原作者处取得整个文件夹，包括它引用的脚本、资料和素材。
 
+## 验证网页确实调用了本机 Codex
+
+项目自带一个不生成图片的安全测试 Skill。macOS 双击：
+
+```text
+test-local-codex.command
+```
+
+或在终端运行：
+
+```bash
+npm run local:test-codex
+```
+
+在自动打开的网页里填写任意测试产品名称和核心卖点，然后提交。成功时右侧会显示：
+
+- 一个新的 Codex 任务 ID
+- `local-codex-smoke-test` Skill
+- `本机 Codex 调用验证成功`
+
+测试会创建一个可恢复的新 Codex 会话，但不会生成图片。验证完成后按 `Ctrl+C`
+关闭测试服务，再用正常启动脚本运行工作台。
+
 ## 本地配置
 
 所有配置都是可选的：
@@ -67,6 +90,7 @@ Skill，需要从原作者处取得整个文件夹，包括它引用的脚本、
 | `LOCAL_MAX_CONCURRENCY` | `1` | 本机最大并发任务数，最高 4 |
 | `CODEX_JOB_BRIDGE_PORT` | `48721` | 本地工作台端口 |
 | `ENABLE_CODEX_EXEC` | `1` | 设为 `0` 时只创建任务，不执行 Codex |
+| `CODEX_EPHEMERAL` | `0` | 设为 `1` 时不保留 Codex 会话记录 |
 
 任务结果保存在：
 

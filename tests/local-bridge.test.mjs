@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-async function startBridge(dataDir) {
+async function startBridge(dataDir, extraEnv = {}) {
   const child = spawn(process.execPath, ["bridge/codex-job-server.mjs"], {
     cwd: projectRoot,
     env: {
@@ -16,6 +16,7 @@ async function startBridge(dataDir) {
       CODEX_JOB_BRIDGE_PORT: "0",
       ENABLE_CODEX_EXEC: "0",
       LOCAL_JOB_DATA_DIR: dataDir,
+      ...extraEnv,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -96,6 +97,26 @@ test("local bridge serves the workbench and creates an isolated job", async () =
       body: JSON.stringify(payload),
     });
     assert.equal(rejectedOrigin.status, 403);
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.once("exit", resolve));
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("local bridge discovers the bundled Codex smoke-test skill", async () => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "zuoyi-skill-test-"));
+  const { child, url } = await startBridge(dataDir, {
+    LOCAL_SKILL_ID: "local-codex-smoke-test",
+  });
+
+  try {
+    const response = await fetch(`${url}/health`);
+    assert.equal(response.status, 200);
+    const health = await response.json();
+    assert.equal(health.skillId, "local-codex-smoke-test");
+    assert.equal(health.skillAvailable, true);
+    assert.match(health.skillPath, /local-codex-smoke-test\/SKILL\.md$/u);
   } finally {
     child.kill("SIGTERM");
     await new Promise((resolve) => child.once("exit", resolve));

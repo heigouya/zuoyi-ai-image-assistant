@@ -96,6 +96,13 @@
         margin-top: 18px;
       }
 
+      .grid > *,
+      .job-layout > *,
+      .field-grid,
+      .field-grid > * {
+        min-width: 0;
+      }
+
       .card,
       .module,
       .result-card {
@@ -167,7 +174,7 @@
 
       .job-layout {
         display: grid;
-        grid-template-columns: minmax(300px, 0.9fr) minmax(360px, 1.1fr);
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
         gap: 18px;
         align-items: stretch;
       }
@@ -735,6 +742,8 @@
           const data = await response.json();
           document.querySelector("#bridgeStatus").textContent = !data.ok
             ? "未连接"
+            : data.skillId === "local-codex-smoke-test"
+              ? "已连接，Codex 测试模式"
             : data.skillAvailable
               ? "已连接"
               : "已连接，Skill 未安装";
@@ -836,6 +845,7 @@
         resultBox.innerHTML = `
             <div class="result-meta">
               <p><strong>Job ID：</strong>${escapeHtml(data.id)}</p>
+              <p><strong>Skill：</strong>${escapeHtml(data.skillId)}</p>
               ${
                 data.codexThreadId
                   ? `<p><strong>Codex 任务：</strong>${escapeHtml(data.codexThreadId)}</p>`

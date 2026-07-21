@@ -20,6 +20,8 @@ const maxConcurrency = Math.max(
   Math.min(4, Number(process.env.LOCAL_MAX_CONCURRENCY ?? 1) || 1),
 );
 const amazonSkillId = "amazon-image-a-plus-planner";
+const selectedSkillId = process.env.LOCAL_SKILL_ID || amazonSkillId;
+const codexEphemeral = process.env.CODEX_EPHEMERAL === "1";
 const maxRequestBytes = 64 * 1024 * 1024;
 const maxImagesPerKind = 12;
 const maxImageBytes = 12 * 1024 * 1024;
@@ -213,8 +215,21 @@ async function updateJob(jobDir, patch) {
 }
 
 function buildCodexPrompt(payload, jobDir, skillPath) {
+  if (selectedSkillId === "local-codex-smoke-test") {
+    return [
+      `Read and follow the local skill file at: ${skillPath}`,
+      "Run the $local-codex-smoke-test skill now.",
+      "",
+      `Job directory: ${jobDir}`,
+      "",
+      "This is a local connection test requested by the owner.",
+      "Create result.md in the job directory exactly as the skill instructs.",
+      "Do not generate images and do not modify any other project file.",
+    ].join("\n");
+  }
+
   const form = {
-    skillId: amazonSkillId,
+    skillId: selectedSkillId,
     templateId: payload.templateId,
     templateName: payload.templateName,
     productName: payload.productName,
@@ -232,7 +247,7 @@ function buildCodexPrompt(payload, jobDir, skillPath) {
 
   return [
     `Read and follow the local skill file at: ${skillPath}`,
-    `Use the $${amazonSkillId} workflow to run one Amazon image-suite job.`,
+    `Use the $${selectedSkillId} workflow to run one Amazon image-suite job.`,
     "",
     `Job directory: ${jobDir}`,
     `Images output directory: ${path.join(jobDir, "images")}`,
@@ -284,7 +299,7 @@ async function writeJob(payload) {
     jobDir,
     "reference",
   );
-  const skillPath = resolveSkillPath(amazonSkillId);
+  const skillPath = resolveSkillPath(selectedSkillId);
   const codexPrompt = buildCodexPrompt(
     { ...payload, productImagePaths, referenceImagePaths },
     jobDir,
@@ -298,7 +313,7 @@ async function writeJob(payload) {
     message: enableCodexExec ? "任务已进入本机队列。" : "本机 Codex 执行已关闭。",
     templateId: payload.templateId,
     templateName: payload.templateName,
-    skillId: amazonSkillId,
+    skillId: selectedSkillId,
     skillPath,
     skillExists: Boolean(skillPath),
     payload: {
@@ -334,7 +349,7 @@ async function executeJob(job) {
   if (!job.skillPath) {
     await updateJob(job.jobDir, {
       status: "failed",
-      message: `未找到 Skill：${amazonSkillId}。请把完整 Skill 放入项目 skills 目录或 ~/.codex/skills。`,
+      message: `未找到 Skill：${selectedSkillId}。请把完整 Skill 放入项目 skills 目录或 ~/.codex/skills。`,
     });
     return;
   }
@@ -355,9 +370,9 @@ async function executeJob(job) {
     "-c",
     'approval_policy="never"',
     "--skip-git-repo-check",
-    "--ephemeral",
     "--json",
   ];
+  if (codexEphemeral) args.push("--ephemeral");
   for (const image of job.inputImages) args.push("--image", image);
   args.push("-");
 
@@ -420,7 +435,9 @@ async function executeJob(job) {
             status: code === 0 ? "completed" : "failed",
             message:
               code === 0
-                ? images.length > 0
+                ? selectedSkillId === "local-codex-smoke-test"
+                  ? "本机 Codex 调用验证成功。请查看 result.md。"
+                  : images.length > 0
                   ? "Codex 已完成，图片已返回。"
                   : "Codex 已完成，但没有生成图片。请查看 result.md。"
                 : `Codex 执行失败，退出码 ${code}。请查看 codex-exec.log。`,
@@ -459,6 +476,7 @@ async function jobResponse(id) {
   const job = await readJob(id);
   return {
     id: job.id,
+    skillId: job.skillId,
     status: job.status,
     message: job.message || "",
     codexThreadId: job.codexThreadId || "",
@@ -474,7 +492,7 @@ const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", `http://127.0.0.1:${runtimePort}`);
 
     if (request.method === "GET" && url.pathname === "/health") {
-      const skillPath = resolveSkillPath(amazonSkillId);
+      const skillPath = resolveSkillPath(selectedSkillId);
       return json(response, 200, {
         ok: true,
         mode: "local-codex",
@@ -483,7 +501,7 @@ const server = createServer(async (request, response) => {
         activeJobs,
         queuedJobs: pendingJobs.length,
         codexBin: resolveCodexBin(),
-        skillId: amazonSkillId,
+        skillId: selectedSkillId,
         skillAvailable: Boolean(skillPath),
         skillPath,
         outputRoot,
@@ -569,7 +587,8 @@ server.listen(configuredPort, "127.0.0.1", () => {
   console.log(`Codex image job bridge running at http://127.0.0.1:${runtimePort}`);
   console.log(`Job data: ${outputRoot}`);
   console.log(`Codex exec: ${enableCodexExec ? "enabled" : "disabled"}`);
-  console.log(`Skill: ${resolveSkillPath(amazonSkillId) || "not found"}`);
+  console.log(`Skill: ${resolveSkillPath(selectedSkillId) || "not found"}`);
+  console.log(`Persistent sessions: ${codexEphemeral ? "no" : "yes"}`);
   console.log(`Max concurrency: ${maxConcurrency}`);
 });
 
