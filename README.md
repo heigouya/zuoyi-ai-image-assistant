@@ -8,6 +8,8 @@ Codex 和本地 Skill 执行。
 - 多张产品图和参考图上传
 - 亚马逊主图与 A+ 套图任务
 - 本机任务队列和状态轮询
+- 每次提交都会创建一个可在 Codex 桌面侧边栏看到的新任务
+- 项目自带 `product-image-brief-planner` 表单验证 Skill
 - Codex 提示词、`result.md` 和生成图片回传
 - Windows、macOS、Linux 使用同一套本地服务
 - 自动发现项目 Skill、`CODEX_HOME` Skill 和用户 Skill
@@ -17,8 +19,7 @@ Codex 和本地 Skill 执行。
 ## 运行要求
 
 - Node.js 22 或更新版本
-- 已安装并登录 Codex CLI
-- 完整的 `amazon-image-a-plus-planner` Skill
+- Codex 桌面应用或已登录的 Codex CLI
 
 本地工作台只使用 Node.js 内置模块，因此运行它不需要执行 `npm install`。
 
@@ -42,7 +43,19 @@ http://127.0.0.1:48721/
 
 启动窗口需要保持开启，按 `Ctrl+C` 停止。
 
-## 安装 Skill
+## 当前内置 Skill
+
+正常启动后，网页默认绑定项目内的：
+
+```text
+skills/product-image-brief-planner/
+```
+
+它会读取产品实拍图、产品名称、目标站点、采购链接、输出要求、参考图或链接、
+规格、配件清单和核心卖点，并在任务目录生成一份 `result.md` 产品图任务单。
+结果第一行会明确显示技能识别成功，方便验证网页确实调用了这个 Skill。
+
+## 换成正式出图 Skill
 
 将完整 Skill 文件夹放到以下任意位置：
 
@@ -54,6 +67,11 @@ skills/amazon-image-a-plus-planner/
 
 也可以通过 `CODEX_SKILLS_DIR` 指定 Skill 根目录。开发包目前没有包含原作者的
 Skill，需要从原作者处取得整个文件夹，包括它引用的脚本、资料和素材。
+启动时指定正式 Skill：
+
+```bash
+LOCAL_SKILL_ID=amazon-image-a-plus-planner npm run local
+```
 
 ## 验证网页确实调用了本机 Codex
 
@@ -71,12 +89,12 @@ npm run local:test-codex
 
 在自动打开的网页里填写任意测试产品名称和核心卖点，然后提交。成功时右侧会显示：
 
-- 一个新的 Codex 任务 ID
+- 一个新的 Codex 桌面任务标题和 ID
 - `local-codex-smoke-test` Skill
 - `本机 Codex 调用验证成功`
 
-测试会创建一个可恢复的新 Codex 会话，但不会生成图片。验证完成后按 `Ctrl+C`
-关闭测试服务，再用正常启动脚本运行工作台。
+测试会创建一个会出现在 Codex 桌面侧边栏中的真实任务，但不会生成图片。验证完成后
+按 `Ctrl+C` 关闭测试服务，再用正常启动脚本运行工作台。
 
 ## 本地配置
 
@@ -90,7 +108,9 @@ npm run local:test-codex
 | `LOCAL_MAX_CONCURRENCY` | `1` | 本机最大并发任务数，最高 4 |
 | `CODEX_JOB_BRIDGE_PORT` | `48721` | 本地工作台端口 |
 | `ENABLE_CODEX_EXEC` | `1` | 设为 `0` 时只创建任务，不执行 Codex |
-| `CODEX_EPHEMERAL` | `0` | 设为 `1` 时不保留 Codex 会话记录 |
+
+网页通过 Codex `app-server` 创建永久任务，不使用 ephemeral 模式；因此新任务会与
+普通 Codex 桌面任务共用本机任务库存。
 
 任务结果保存在：
 
@@ -98,7 +118,7 @@ npm run local:test-codex
 data/jobs/<job-id>/
 ```
 
-每个任务包含输入图、`job.json`、`codex-prompt.txt`、`result.md`、执行日志和
+每个任务包含输入图、`job.json`、`codex-prompt.txt`、`result.md`、`codex-app-server.log` 和
 `images/` 结果目录。
 
 ## 验证

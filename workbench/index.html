@@ -594,14 +594,14 @@
     </main>
 
     <script>
-      const amazonSkillId = "amazon-image-a-plus-planner";
+      const bundledSkillId = "product-image-brief-planner";
 
       const modules = [
         {
           id: "amazon-a-plus-suite",
           title: "亚马逊套图生成",
-          skillName: "$amazon-image-a-plus-planner",
-          skillId: amazonSkillId,
+          skillName: "$product-image-brief-planner",
+          skillId: bundledSkillId,
           status: "已接入",
           description:
             "上传产品图和商品参数，创建 Codex 任务，输出主图、卖点图和 A+ 模块候选图。",
@@ -740,12 +740,20 @@
         try {
           const response = await fetch("/health");
           const data = await response.json();
+          if (data.ok && data.skillId) {
+            modules[0].skillId = data.skillId;
+            modules[0].skillName = `$${data.skillId}`;
+            if (activeModule.id === modules[0].id) {
+              activeModule = modules[0];
+              moduleSkill.textContent = activeModule.skillName;
+            }
+          }
           document.querySelector("#bridgeStatus").textContent = !data.ok
             ? "未连接"
             : data.skillId === "local-codex-smoke-test"
               ? "已连接，Codex 测试模式"
             : data.skillAvailable
-              ? "已连接"
+              ? "已连接，桌面任务模式"
               : "已连接，Skill 未安装";
         } catch {
           document.querySelector("#bridgeStatus").textContent = "未连接";
@@ -847,8 +855,13 @@
               <p><strong>Job ID：</strong>${escapeHtml(data.id)}</p>
               <p><strong>Skill：</strong>${escapeHtml(data.skillId)}</p>
               ${
+                data.codexTaskTitle
+                  ? `<p><strong>Codex 任务标题：</strong>${escapeHtml(data.codexTaskTitle)}</p>`
+                  : ""
+              }
+              ${
                 data.codexThreadId
-                  ? `<p><strong>Codex 任务：</strong>${escapeHtml(data.codexThreadId)}</p>`
+                  ? `<p><strong>Codex 桌面任务 ID：</strong>${escapeHtml(data.codexThreadId)}</p>`
                   : ""
               }
               <p><strong>状态：</strong>${escapeHtml(data.message || data.status)}</p>

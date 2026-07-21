@@ -123,3 +123,51 @@ test("local bridge discovers the bundled Codex smoke-test skill", async () => {
     await rm(dataDir, { recursive: true, force: true });
   }
 });
+
+test("local bridge creates a persistent desktop task with an explicit project skill", async () => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "zuoyi-desktop-task-test-"));
+  const fakeCodex = path.join(projectRoot, "tests", "fake-codex-app-server.mjs");
+  const { child, url } = await startBridge(dataDir, {
+    ENABLE_CODEX_EXEC: "1",
+    CODEX_BIN: fakeCodex,
+  });
+
+  try {
+    const payload = {
+      templateId: "amazon-a-plus-suite",
+      templateName: "$product-image-brief-planner",
+      skillId: "product-image-brief-planner",
+      productName: "可见任务测试",
+      marketplace: "德国",
+      sellingPoints: "防水，易安装",
+      productImages: [],
+      referenceImages: [],
+    };
+    const createResponse = await fetch(`${url}/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: url },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(createResponse.status, 200);
+    const created = await createResponse.json();
+
+    let completed = created;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const response = await fetch(`${url}/jobs/${created.id}`);
+      completed = await response.json();
+      if (!["queued", "running"].includes(completed.status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.executionMode, "codex-desktop-task");
+    assert.equal(completed.skillId, "product-image-brief-planner");
+    assert.equal(completed.codexThreadId, "019f0000-0000-7000-8000-000000000001");
+    assert.equal(completed.codexTurnId, "turn_fake_1");
+    assert.equal(completed.codexTaskTitle, "网页产品图：可见任务测试");
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.once("exit", resolve));
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
