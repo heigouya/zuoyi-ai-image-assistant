@@ -469,6 +469,34 @@
         font-size: 14px;
       }
 
+      .progress-panel {
+        margin-top: 12px;
+        border: 1px solid #cdd9d0;
+        border-radius: 8px;
+        background: #edf4ee;
+        padding: 12px;
+        color: #31463a;
+        line-height: 1.65;
+        font-size: 13px;
+      }
+
+      .continue-job {
+        width: 100%;
+        min-height: 40px;
+        margin-top: 10px;
+        border: 0;
+        border-radius: 7px;
+        background: var(--brand);
+        color: white;
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      .continue-job:disabled {
+        background: #94a39b;
+        cursor: wait;
+      }
+
       @media (max-width: 1100px) {
         header,
         .grid,
@@ -895,6 +923,15 @@
       function renderJobResult(data) {
         resultStatus.textContent = data.status;
         const images = Array.isArray(data.images) ? data.images : [];
+        const formatDuration = (seconds) => {
+          const safeSeconds = Math.max(0, Number(seconds || 0));
+          const minutes = Math.floor(safeSeconds / 60);
+          const remainder = safeSeconds % 60;
+          return minutes > 0 ? `${minutes} 分 ${remainder} 秒` : `${remainder} 秒`;
+        };
+        const missing = Array.isArray(data.deliverableValidation?.missing)
+          ? data.deliverableValidation.missing
+          : [];
         resultBox.innerHTML = `
             <div class="result-meta">
               <p><strong>Job ID：</strong>${escapeHtml(data.id)}</p>
@@ -922,6 +959,29 @@
               <p><strong>状态：</strong>${escapeHtml(data.message || data.status)}</p>
               <p><strong>目录：</strong>${escapeHtml(data.workspaceJobPath)}</p>
             </div>
+            <div class="progress-panel">
+              <p><strong>当前阶段：</strong>${escapeHtml(data.currentStage || data.status)}</p>
+              <p><strong>实时进度：</strong>${escapeHtml(data.progressMessage || "等待新的进度事件")}</p>
+              <p><strong>已运行：</strong>${escapeHtml(formatDuration(data.runtimeSeconds))}</p>
+              <p><strong>最后活动：</strong>${escapeHtml(formatDuration(data.secondsSinceActivity))}前</p>
+              <p><strong>已生成图片：</strong>${escapeHtml(images.length)} 张</p>
+              ${data.continuationAttempts ? `<p><strong>自动续跑：</strong>${escapeHtml(data.continuationAttempts)} 次</p>` : ""}
+            </div>
+            ${
+              data.possiblyStalled
+                ? `<div class="warn">任务可能停滞：超过 ${escapeHtml(formatDuration(data.stallThresholdSeconds))} 没有收到 Codex 活动。</div>`
+                : ""
+            }
+            ${
+              missing.length > 0 && data.status === "needs_attention"
+                ? `<div class="warn">未通过交付物校验：${escapeHtml(missing.join("、"))}</div>`
+                : ""
+            }
+            ${
+              data.canContinue
+                ? `<button class="continue-job" type="button" data-continue-job="${escapeHtml(data.id)}">继续完成任务</button>`
+                : ""
+            }
             ${
               images.length > 0
                 ? `<div class="images">${images
@@ -942,6 +1002,36 @@
               <pre>${escapeHtml(data.codexPrompt)}</pre>
             </details>
           `;
+        const continueButton = resultBox.querySelector("[data-continue-job]");
+        if (continueButton) {
+          continueButton.addEventListener("click", async () => {
+            continueButton.disabled = true;
+            continueButton.textContent = "正在发送续跑指令...";
+            try {
+              const response = await fetch(
+                `/jobs/${encodeURIComponent(continueButton.dataset.continueJob)}/continue`,
+                {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: "{}",
+                },
+              );
+              const next = await response.json();
+              if (!response.ok) throw new Error(next.message || "续跑失败");
+              renderJobResult(next);
+              if (["waiting_for_codex", "queued", "running"].includes(next.status)) {
+                pollJob(next.id).catch((error) => {
+                  resultStatus.textContent = "failed";
+                  resultBox.innerHTML = `<div class="warn">${escapeHtml(error.message)}</div>`;
+                });
+              }
+            } catch (error) {
+              continueButton.disabled = false;
+              continueButton.textContent = "继续完成任务";
+              window.alert(error.message);
+            }
+          });
+        }
       }
 
       async function pollJob(id) {

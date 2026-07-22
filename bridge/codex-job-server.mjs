@@ -27,6 +27,9 @@ const shouldOpenCodexDesktopTask = process.env.OPEN_CODEX_DESKTOP_TASK !== "0";
 const maxRequestBytes = 64 * 1024 * 1024;
 const maxImagesPerKind = 12;
 const maxImageBytes = 12 * 1024 * 1024;
+const maxAutomaticContinuations = 2;
+const normalStallSeconds = 3 * 60;
+const imageGenerationStallSeconds = 5 * 60;
 const imageMimeToExtension = new Map([
   ["image/png", ".png"],
   ["image/jpeg", ".jpg"],
@@ -40,6 +43,8 @@ const contentTypes = new Map([
 ]);
 const jobIdPattern = /^amazon-[0-9a-f-]{36}$/u;
 const pendingJobs = [];
+const jobUpdateQueues = new Map();
+const activeBackgroundRuns = new Map();
 let activeJobs = 0;
 let runtimePort = configuredPort;
 
@@ -250,11 +255,115 @@ async function readResultMarkdown(id) {
 }
 
 async function updateJob(jobDir, patch) {
-  const jobPath = path.join(jobDir, "job.json");
-  const job = JSON.parse(await readFile(jobPath, "utf8"));
-  const nextJob = { ...job, ...patch, updatedAt: new Date().toISOString() };
-  await writeFile(jobPath, JSON.stringify(nextJob, null, 2), "utf8");
-  return nextJob;
+  const previous = jobUpdateQueues.get(jobDir) || Promise.resolve();
+  const next = previous.catch(() => {}).then(async () => {
+    const jobPath = path.join(jobDir, "job.json");
+    const job = JSON.parse(await readFile(jobPath, "utf8"));
+    const nextJob = { ...job, ...patch, updatedAt: new Date().toISOString() };
+    await writeFile(jobPath, JSON.stringify(nextJob, null, 2), "utf8");
+    return nextJob;
+  });
+  jobUpdateQueues.set(jobDir, next);
+  try {
+    return await next;
+  } finally {
+    if (jobUpdateQueues.get(jobDir) === next) jobUpdateQueues.delete(jobDir);
+  }
+}
+
+const bundledResultMarkers = [
+  "# 产品图生成任务单",
+  "技能识别成功：`product-image-brief-planner`",
+  "## 提交内容",
+  "## 完整性与风险",
+  "## 套图策略",
+  "## 分镜与提示词",
+  "## 生成结果",
+  "## 质检",
+  "本任务由网页调用本机 Codex，并显式加载项目 Skill 完成。",
+];
+
+async function validateJobDeliverables(job) {
+  const resultMarkdown = await readResultMarkdown(job.id);
+  const missing = [];
+  if (!resultMarkdown.trim()) {
+    missing.push("result.md");
+  } else if (job.skillId === bundledSkillId) {
+    for (const marker of bundledResultMarkers) {
+      if (!resultMarkdown.includes(marker)) missing.push(marker);
+    }
+  } else if (resultMarkdown.trim().length < 20) {
+    missing.push("完整的 result.md 内容");
+  }
+  return {
+    valid: missing.length === 0,
+    missing,
+    resultBytes: Buffer.byteLength(resultMarkdown, "utf8"),
+  };
+}
+
+function continuationPrompt(validation, manual = false) {
+  const missing = validation?.missing?.length
+    ? `当前缺少：${validation.missing.join("、")}。`
+    : "请检查现有目录中的未完成交付物。";
+  return [
+    manual ? "The user explicitly requested that this job continue." : "Continue the unfinished job autonomously.",
+    missing,
+    "Inspect the existing job directory and complete all missing deliverables.",
+    "Do not ask the user to send another message.",
+    "Do not stop until result.md passes the Skill's required structure and all available image work is finished.",
+  ].join("\n");
+}
+
+function progressForEvent(event, imageSequence) {
+  const method = event.method;
+  const itemType = event.params?.item?.type || "";
+  if (method === "turn/started") {
+    return { currentStage: "analysis", progressMessage: "Codex 已开始执行本轮任务。" };
+  }
+  if (method === "turn/completed") {
+    return { currentStage: "validation", progressMessage: "本轮执行结束，正在校验交付物。" };
+  }
+  if (!["item/started", "item/completed"].includes(method)) return null;
+  const completed = method === "item/completed";
+  if (itemType === "imageGeneration") {
+    return {
+      currentStage: "image_generation",
+      progressMessage: completed
+        ? `第 ${imageSequence} 次图片生成已返回，正在检查结果。`
+        : `正在进行第 ${imageSequence} 次图片生成。`,
+      activeItemType: itemType,
+    };
+  }
+  if (itemType === "commandExecution") {
+    return {
+      currentStage: "file_processing",
+      progressMessage: completed ? "文件处理步骤已完成。" : "正在处理文件或检查生成结果。",
+      activeItemType: itemType,
+    };
+  }
+  if (itemType === "agentMessage") {
+    return {
+      currentStage: "writing",
+      progressMessage: completed ? "本轮文字输出已完成。" : "Codex 正在整理结果报告。",
+      activeItemType: itemType,
+    };
+  }
+  if (itemType === "reasoning") {
+    return {
+      currentStage: "analysis",
+      progressMessage: completed ? "分析步骤已完成。" : "Codex 正在分析产品资料。",
+      activeItemType: itemType,
+    };
+  }
+  if (itemType) {
+    return {
+      currentStage: "tool_work",
+      progressMessage: completed ? `${itemType} 步骤已完成。` : `Codex 正在执行 ${itemType}。`,
+      activeItemType: itemType,
+    };
+  }
+  return null;
 }
 
 function buildCodexPrompt(payload, jobDir, skillPath) {
@@ -447,10 +556,19 @@ async function executeJob(job) {
     return;
   }
 
+  const storedJob = await readJob(job.id);
   const logPath = path.join(job.jobDir, "codex-app-server.log");
   await updateJob(job.jobDir, {
     status: "running",
-    message: "正在创建 Codex 桌面任务，请保持启动窗口开启。",
+    startedAt: storedJob.startedAt || new Date().toISOString(),
+    lastActivityAt: new Date().toISOString(),
+    currentStage: "starting",
+    progressMessage: job.resumeThreadId
+      ? "正在恢复原 Codex 任务并继续执行。"
+      : "正在创建 Codex 后台任务。",
+    message: job.resumeThreadId
+      ? "正在恢复原 Codex 任务并继续执行。"
+      : "正在创建 Codex 后台任务，请保持启动窗口开启。",
   });
 
   const codexBin = resolveCodexBin();
@@ -468,13 +586,11 @@ async function executeJob(job) {
     let stdoutBuffer = "";
     let nextRequestId = 1;
     let codexThreadId = "";
-    let completionResolve;
-    let completionReject;
+    let currentTurnId = "";
+    let imageSequence = 0;
     const pendingRequests = new Map();
-    const completion = new Promise((resolveCompletion, rejectCompletion) => {
-      completionResolve = resolveCompletion;
-      completionReject = rejectCompletion;
-    });
+    const turnWaiters = new Map();
+    const completedTurns = new Map();
 
     const send = (message) => {
       child.stdin.write(`${JSON.stringify(message)}\n`);
@@ -486,6 +602,46 @@ async function executeJob(job) {
         pendingRequests.set(id, { resolve: resolveRequest, reject: rejectRequest });
         send({ method, id, params });
       });
+    const waitForTurn = (turnId) => {
+      if (completedTurns.has(turnId)) {
+        const turn = completedTurns.get(turnId);
+        completedTurns.delete(turnId);
+        return Promise.resolve(turn);
+      }
+      return new Promise((resolveTurn, rejectTurn) => {
+        const timeout = setTimeout(() => {
+          turnWaiters.delete(turnId);
+          rejectTurn(new Error("Codex 桌面任务超过 30 分钟未完成"));
+        }, 30 * 60 * 1000);
+        turnWaiters.set(turnId, {
+          resolve: (turn) => {
+            clearTimeout(timeout);
+            resolveTurn(turn);
+          },
+          reject: (error) => {
+            clearTimeout(timeout);
+            rejectTurn(error);
+          },
+        });
+      });
+    };
+    const settleTurn = (turn) => {
+      const turnId = turn?.id || "";
+      if (!turnId) return;
+      const waiter = turnWaiters.get(turnId);
+      if (waiter) {
+        turnWaiters.delete(turnId);
+        waiter.resolve(turn);
+      } else {
+        completedTurns.set(turnId, turn);
+      }
+    };
+    const rejectOutstanding = (error) => {
+      for (const pending of pendingRequests.values()) pending.reject(error);
+      pendingRequests.clear();
+      for (const waiter of turnWaiters.values()) waiter.reject(error);
+      turnWaiters.clear();
+    };
     const finishWithError = (error) => {
       if (settled) return;
       settled = true;
@@ -495,11 +651,14 @@ async function executeJob(job) {
       );
       updateJob(job.jobDir, {
         status: "failed",
+        currentStage: "failed",
+        progressMessage: `执行失败：${message}`,
         message: `Codex 桌面任务启动失败：${message}`,
       })
         .catch(() => {})
         .finally(() => {
           child.kill("SIGTERM");
+          activeBackgroundRuns.delete(job.id);
           resolve();
         });
     };
@@ -529,7 +688,18 @@ async function executeJob(job) {
             event.method === "turn/completed" &&
             (!codexThreadId || event.params?.threadId === codexThreadId)
           ) {
-            completionResolve(event.params?.turn || {});
+            settleTurn(event.params?.turn || {});
+          }
+          const itemType = event.params?.item?.type || "";
+          if (event.method === "item/started" && itemType === "imageGeneration") {
+            imageSequence += 1;
+          }
+          const progress = progressForEvent(event, imageSequence);
+          if (progress && (!codexThreadId || event.params?.threadId === codexThreadId)) {
+            updateJob(job.jobDir, {
+              ...progress,
+              lastActivityAt: new Date().toISOString(),
+            }).catch(() => {});
           }
           if (event.method === "error" && event.params?.message) {
             writeFile(logPath, `\n[server error] ${event.params.message}\n`, { flag: "a" }).catch(
@@ -545,10 +715,10 @@ async function executeJob(job) {
       writeFile(logPath, chunk, { flag: "a" }).catch(() => {});
     });
     child.on("error", (error) => {
-      completionReject(error);
+      rejectOutstanding(error);
     });
     child.on("exit", (code) => {
-      if (!settled) completionReject(new Error(`app-server 提前退出，退出码 ${code}`));
+      if (!settled) rejectOutstanding(new Error(`app-server 提前退出，退出码 ${code}`));
     });
 
     (async () => {
@@ -562,13 +732,19 @@ async function executeJob(job) {
       });
       send({ method: "initialized", params: {} });
 
-      const started = await request("thread/start", {
-        cwd: projectRoot,
-        approvalPolicy: "never",
-        sandbox: "workspace-write",
-        ephemeral: false,
-        threadSource: "appServer",
-      });
+      const started = job.resumeThreadId
+        ? await request("thread/resume", {
+            threadId: job.resumeThreadId,
+            cwd: projectRoot,
+            approvalPolicy: "never",
+          })
+        : await request("thread/start", {
+            cwd: projectRoot,
+            approvalPolicy: "never",
+            sandbox: "workspace-write",
+            ephemeral: false,
+            threadSource: "appServer",
+          });
       codexThreadId = started?.thread?.id || "";
       if (!codexThreadId) throw new Error("app-server 没有返回桌面任务 ID");
 
@@ -577,52 +753,98 @@ async function executeJob(job) {
         .trim()
         .slice(0, 48);
       const codexTaskTitle = `网页产品图：${safeProductName || "未命名产品"}`;
-      await request("thread/name/set", { threadId: codexThreadId, name: codexTaskTitle });
+      if (!job.resumeThreadId) {
+        await request("thread/name/set", { threadId: codexThreadId, name: codexTaskTitle });
+      }
       await updateJob(job.jobDir, {
         codexThreadId,
         codexTaskTitle,
         codexDeepLink: codexDesktopDeepLink(codexThreadId),
-        message: `Codex 桌面任务“${codexTaskTitle}”已创建，正在执行 Skill。`,
+        lastActivityAt: new Date().toISOString(),
+        currentStage: "analysis",
+        progressMessage: job.resumeThreadId
+          ? "原任务已恢复，正在补齐未完成交付物。"
+          : "任务已创建，正在读取表单和 Skill。",
+        message: job.resumeThreadId
+          ? `Codex 任务“${codexTaskTitle}”已恢复，正在继续执行。`
+          : `Codex 后台任务“${codexTaskTitle}”已创建，正在执行 Skill。`,
       });
 
-      const input = [
-        { type: "skill", name: selectedSkillId, path: job.skillPath },
-        { type: "text", text: job.codexPrompt },
-        ...job.inputImages.map((imagePath) => ({ type: "localImage", path: imagePath })),
-      ];
-      const turnStarted = await request("turn/start", {
-        threadId: codexThreadId,
-        input,
+      activeBackgroundRuns.set(job.id, {
+        steer: async () => {
+          if (!currentTurnId) throw new Error("当前没有可续跑的 Codex 轮次。");
+          await request("turn/steer", {
+            threadId: codexThreadId,
+            expectedTurnId: currentTurnId,
+            input: [{ type: "text", text: continuationPrompt(null, true) }],
+          });
+        },
       });
-      await updateJob(job.jobDir, { codexTurnId: turnStarted?.turn?.id || "" });
 
-      let turnTimeout;
-      const turn = await Promise.race([
-        completion,
-        new Promise((_, reject) => {
-          turnTimeout = setTimeout(
-            () => reject(new Error("Codex 桌面任务超过 30 分钟未完成")),
-            30 * 60 * 1000,
-          );
-        }),
-      ]);
-      clearTimeout(turnTimeout);
-      const completed = turn.status === "completed";
+      let validation = await validateJobDeliverables({ ...storedJob, id: job.id });
+      let automaticAttempts = 0;
+      let nextInput = job.resumeThreadId
+        ? [{ type: "text", text: continuationPrompt(validation, true) }]
+        : [
+            { type: "skill", name: selectedSkillId, path: job.skillPath },
+            { type: "text", text: job.codexPrompt },
+            ...job.inputImages.map((imagePath) => ({ type: "localImage", path: imagePath })),
+          ];
+      let turn = {};
+
+      while (true) {
+        const turnStarted = await request("turn/start", {
+          threadId: codexThreadId,
+          input: nextInput,
+        });
+        currentTurnId = turnStarted?.turn?.id || "";
+        if (!currentTurnId) throw new Error("app-server 没有返回轮次 ID");
+        const latest = await readJob(job.id);
+        const turnIds = Array.isArray(latest.codexTurnIds) ? latest.codexTurnIds : [];
+        await updateJob(job.jobDir, {
+          codexTurnId: currentTurnId,
+          codexTurnIds: [...turnIds, currentTurnId],
+          lastActivityAt: new Date().toISOString(),
+        });
+
+        turn = await waitForTurn(currentTurnId);
+        validation = await validateJobDeliverables({ ...storedJob, id: job.id });
+        if (validation.valid) break;
+        if (automaticAttempts >= maxAutomaticContinuations) break;
+
+        automaticAttempts += 1;
+        const current = await readJob(job.id);
+        await updateJob(job.jobDir, {
+          continuationAttempts: Number(current.continuationAttempts || 0) + 1,
+          currentStage: "continuing",
+          progressMessage: `交付物未通过校验，正在自动续跑（${automaticAttempts}/${maxAutomaticContinuations}）。`,
+          message: `本轮尚缺 ${validation.missing.join("、")}，已在同一 Codex 任务中自动续跑。`,
+          lastActivityAt: new Date().toISOString(),
+        });
+        nextInput = [{ type: "text", text: continuationPrompt(validation) }];
+      }
+
       const images = await listJobImages(job.id);
+      const completed = validation.valid;
       await updateJob(job.jobDir, {
-        status: completed ? "completed" : "failed",
+        status: completed ? "completed" : "needs_attention",
+        currentStage: completed ? "completed" : "needs_attention",
+        progressMessage: completed
+          ? "交付物校验通过，任务完成。"
+          : "自动续跑已用完，仍有交付物缺失。",
         message: completed
-          ? selectedSkillId === bundledSkillId
-            ? images.length > 0
-              ? "桌面任务已完成，产品图套图 Skill 已生成候选图片和 result.md。"
-              : "桌面任务已完成，产品图套图 Skill 已生成正式提示词；本次没有返回图片，请查看 result.md 的生成说明。"
-            : images.length > 0
-              ? "Codex 桌面任务已完成，图片已返回。"
-              : "Codex 桌面任务已完成，请查看 result.md。"
-          : `Codex 桌面任务未成功完成：${turn.error?.message || turn.status || "未知状态"}`,
+          ? images.length > 0
+            ? "任务已完成并通过校验，候选图片和 result.md 已返回。"
+            : "任务已完成并通过校验；本次未返回图片，请查看 result.md 中的生成说明。"
+          : `任务执行了但未通过交付物校验：${validation.missing.join("、")}。可点击“继续完成任务”。`,
+        deliverableValidation: validation,
+        completedAt: completed ? new Date().toISOString() : "",
+        lastActivityAt: new Date().toISOString(),
+        lastTurnStatus: turn.status || "unknown",
         codexDesktopOpened: openCodexDesktopTask(codexThreadId),
       });
       settled = true;
+      activeBackgroundRuns.delete(job.id);
       child.kill("SIGTERM");
       resolve();
     })().catch(finishWithError);
@@ -652,25 +874,66 @@ function enqueueJob(job) {
   runNextJobs();
 }
 
+function resumableJob(job) {
+  return {
+    id: job.id,
+    jobDir: job.workspaceJobPath,
+    codexPrompt: job.codexPrompt,
+    skillPath: job.skillPath,
+    productName: job.payload?.productName,
+    inputImages: [
+      ...(job.payload?.productImages || []),
+      ...(job.payload?.referenceImages || []),
+    ],
+    resumeThreadId: job.codexThreadId,
+  };
+}
+
 async function jobResponse(id) {
   const job = await readJob(id);
   const resultMarkdown = await readResultMarkdown(id);
   const images = await listJobImages(id);
   const visibleMode = job.launchMode === "visible";
-  const visibleStatus = resultMarkdown
+  const deliverableValidation = await validateJobDeliverables(job);
+  const visibleStatus = deliverableValidation.valid
     ? "completed"
+    : resultMarkdown
+      ? "needs_attention"
     : images.length > 0
       ? "running"
       : "waiting_for_codex";
-  const visibleMessage = resultMarkdown
+  const visibleMessage = deliverableValidation.valid
     ? "Codex 原生任务已完成，结果已回传网页。"
+    : resultMarkdown
+      ? `Codex 已写入 result.md，但仍缺：${deliverableValidation.missing.join("、")}。`
     : images.length > 0
       ? `Codex 原生任务正在执行，已回传 ${images.length} 张图片。`
       : "Codex 原生新任务已打开；请切换到 Codex 并点一次发送。";
+  const effectiveStatus = visibleMode ? visibleStatus : job.status;
+  const startedAt = job.startedAt || job.createdAt;
+  const lastActivityAt = job.lastActivityAt || job.updatedAt || startedAt;
+  const now = Date.now();
+  const runtimeSeconds = Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1000) || 0);
+  const secondsSinceActivity = Math.max(
+    0,
+    Math.floor((now - Date.parse(lastActivityAt)) / 1000) || 0,
+  );
+  const stallThresholdSeconds =
+    job.currentStage === "image_generation"
+      ? imageGenerationStallSeconds
+      : normalStallSeconds;
+  const possiblyStalled =
+    !visibleMode &&
+    effectiveStatus === "running" &&
+    secondsSinceActivity >= stallThresholdSeconds;
+  const canContinue =
+    !visibleMode &&
+    Boolean(job.codexThreadId) &&
+    (possiblyStalled || ["needs_attention", "failed"].includes(effectiveStatus));
   return {
     id: job.id,
     skillId: job.skillId,
-    status: visibleMode ? visibleStatus : job.status,
+    status: effectiveStatus,
     message: visibleMode ? visibleMessage : job.message || "",
     codexThreadId: job.codexThreadId || "",
     codexTurnId: job.codexTurnId || "",
@@ -683,6 +946,19 @@ async function jobResponse(id) {
       job.executionMode || (visibleMode ? visibleExecutionMode : backgroundExecutionMode),
     codexPrompt: job.codexPrompt,
     workspaceJobPath: job.workspaceJobPath,
+    currentStage: job.currentStage || (visibleMode ? "waiting_for_codex" : job.status),
+    progressMessage: job.progressMessage || "",
+    startedAt,
+    lastActivityAt,
+    runtimeSeconds,
+    secondsSinceActivity,
+    stallThresholdSeconds,
+    possiblyStalled,
+    canContinue,
+    continuationAttempts: Number(job.continuationAttempts || 0),
+    manualContinuationCount: Number(job.manualContinuationCount || 0),
+    generatedImageCount: images.length,
+    deliverableValidation,
     resultMarkdown,
     images,
   };
@@ -746,6 +1022,52 @@ const server = createServer(async (request, response) => {
       if (!existsSync(jobPath)) {
         return json(response, 404, { status: "failed", message: "Job not found" });
       }
+      return json(response, 200, await jobResponse(id));
+    }
+
+    const continueMatch = /^\/jobs\/(?<id>[^/]+)\/continue$/u.exec(url.pathname);
+    if (request.method === "POST" && continueMatch?.groups) {
+      if (!validateOrigin(request)) {
+        return json(response, 403, { status: "failed", message: "请求来源无效。" });
+      }
+      if (!String(request.headers["content-type"] || "").startsWith("application/json")) {
+        return json(response, 415, { status: "failed", message: "只接受 JSON 请求。" });
+      }
+      await readJson(request);
+      const id = decodeURIComponent(continueMatch.groups.id);
+      const job = await readJob(id);
+      const activeRun = activeBackgroundRuns.get(id);
+      if (activeRun) {
+        await updateJob(job.workspaceJobPath, {
+          manualContinuationCount: Number(job.manualContinuationCount || 0) + 1,
+          progressMessage: "已向正在执行的 Codex 轮次发送续跑指令。",
+          message: "已发送续跑指令，Codex 会继续检查并补齐交付物。",
+          lastActivityAt: new Date().toISOString(),
+        });
+        await activeRun.steer();
+        return json(response, 200, await jobResponse(id));
+      }
+      if (job.launchMode !== "background" || !job.codexThreadId) {
+        return json(response, 409, {
+          status: "failed",
+          message: "这个任务不是可恢复的后台任务，请从 Codex 原生任务中继续。",
+        });
+      }
+      if (!["needs_attention", "failed"].includes(job.status)) {
+        return json(response, 409, {
+          status: job.status,
+          message: "当前任务仍在执行或已经完成，无需重复续跑。",
+        });
+      }
+      await updateJob(job.workspaceJobPath, {
+        status: "queued",
+        currentStage: "queued",
+        progressMessage: "人工续跑已进入队列。",
+        message: "正在排队恢复原 Codex 任务。",
+        manualContinuationCount: Number(job.manualContinuationCount || 0) + 1,
+        lastActivityAt: new Date().toISOString(),
+      });
+      enqueueJob(resumableJob(job));
       return json(response, 200, await jobResponse(id));
     }
 

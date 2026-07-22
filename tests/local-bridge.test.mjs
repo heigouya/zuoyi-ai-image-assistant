@@ -47,6 +47,31 @@ async function startBridge(dataDir, extraEnv = {}) {
   return { child, url };
 }
 
+async function waitForJob(url, id, terminalStatuses = ["completed", "needs_attention", "failed"]) {
+  let current;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const response = await fetch(`${url}/jobs/${id}`);
+    current = await response.json();
+    if (terminalStatuses.includes(current.status)) return current;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Job did not finish: ${JSON.stringify(current)}`);
+}
+
+function backgroundPayload(productName) {
+  return {
+    templateId: "amazon-a-plus-suite",
+    templateName: "$product-image-brief-planner",
+    skillId: "product-image-brief-planner",
+    productName,
+    marketplace: "德国",
+    sellingPoints: "防水，易安装",
+    productImages: [],
+    referenceImages: [],
+    launchMode: "background",
+  };
+}
+
 test("local bridge serves the workbench and creates an isolated job", async () => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "zuoyi-local-test-"));
   const { child, url } = await startBridge(dataDir);
@@ -219,6 +244,82 @@ test("visible mode opens a native Codex composer without starting a background t
     );
     assert.match(decodeURIComponent(created.codexNewThreadDeepLink), /原生侧边栏测试/u);
     assert.match(decodeURIComponent(created.codexNewThreadDeepLink), /codex-prompt\.txt/u);
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.once("exit", resolve));
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("background mode validates result.md and automatically continues the same task", async () => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "zuoyi-auto-continue-test-"));
+  const fakeCodex = path.join(projectRoot, "tests", "fake-codex-app-server.mjs");
+  const { child, url } = await startBridge(dataDir, {
+    ENABLE_CODEX_EXEC: "1",
+    CODEX_BIN: fakeCodex,
+    FAKE_INCOMPLETE_FIRST: "1",
+  });
+
+  try {
+    const createResponse = await fetch(`${url}/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: url },
+      body: JSON.stringify(backgroundPayload("自动续跑测试")),
+    });
+    const created = await createResponse.json();
+    const completed = await waitForJob(url, created.id);
+
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.deliverableValidation.valid, true);
+    assert.equal(completed.continuationAttempts, 1);
+    assert.equal(completed.codexTurnId, "turn_fake_2");
+    assert.equal(completed.currentStage, "completed");
+    const persisted = JSON.parse(
+      await readFile(path.join(completed.workspaceJobPath, "job.json"), "utf8"),
+    );
+    assert.deepEqual(persisted.codexTurnIds, ["turn_fake_1", "turn_fake_2"]);
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.once("exit", resolve));
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a running background task accepts a manual continuation instruction", async () => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "zuoyi-manual-continue-test-"));
+  const fakeCodex = path.join(projectRoot, "tests", "fake-codex-app-server.mjs");
+  const { child, url } = await startBridge(dataDir, {
+    ENABLE_CODEX_EXEC: "1",
+    CODEX_BIN: fakeCodex,
+    FAKE_HANG_FIRST: "1",
+  });
+
+  try {
+    const createResponse = await fetch(`${url}/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: url },
+      body: JSON.stringify(backgroundPayload("人工续跑测试")),
+    });
+    const created = await createResponse.json();
+
+    let running;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      running = await (await fetch(`${url}/jobs/${created.id}`)).json();
+      if (running.status === "running" && running.codexTurnId) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(running.status, "running");
+
+    const continueResponse = await fetch(`${url}/jobs/${created.id}/continue`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: url },
+      body: "{}",
+    });
+    assert.equal(continueResponse.status, 200);
+    const completed = await waitForJob(url, created.id);
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.manualContinuationCount, 1);
+    assert.equal(completed.deliverableValidation.valid, true);
   } finally {
     child.kill("SIGTERM");
     await new Promise((resolve) => child.once("exit", resolve));
