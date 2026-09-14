@@ -418,17 +418,146 @@
 
       .images {
         display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 10px;
         margin-top: 12px;
       }
 
-      .images img {
+      .image-thumb {
+        display: block;
         width: 100%;
-        aspect-ratio: 1;
+        padding: 0;
         border: 1px solid #ded6ca;
         border-radius: 8px;
+        background: #fbfaf7;
+        overflow: hidden;
+        cursor: zoom-in;
+      }
+
+      .image-thumb:focus-visible,
+      .lightbox-thumb:focus-visible,
+      .lightbox-close:focus-visible {
+        outline: 3px solid #4d8a78;
+        outline-offset: 2px;
+      }
+
+      .image-thumb img {
+        width: 100%;
+        aspect-ratio: 1;
         object-fit: cover;
         background: #fbfaf7;
+      }
+
+      .image-thumb:hover {
+        border-color: var(--brand);
+      }
+
+      .image-lightbox {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+
+      .image-lightbox[hidden] {
+        display: none;
+      }
+
+      .lightbox-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(23, 33, 29, 0.82);
+      }
+
+      .lightbox-dialog {
+        position: relative;
+        z-index: 1;
+        width: min(1120px, 100%);
+        max-height: min(860px, calc(100vh - 40px));
+        border: 1px solid #bcb3a6;
+        border-radius: 10px;
+        background: var(--panel);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+        overflow: hidden;
+      }
+
+      .lightbox-close {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 2;
+        width: 36px;
+        height: 36px;
+        border: 1px solid #c9c0b4;
+        border-radius: 50%;
+        background: rgba(255, 253, 250, 0.94);
+        color: var(--ink);
+        font-size: 24px;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      .lightbox-content {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 150px;
+        gap: 16px;
+        min-height: 420px;
+        max-height: min(860px, calc(100vh - 40px));
+        padding: 20px;
+      }
+
+      .lightbox-stage {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 380px;
+        border: 1px solid #ded6ca;
+        border-radius: 8px;
+        background: #f2eee7;
+        overflow: hidden;
+      }
+
+      .lightbox-stage img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        max-height: calc(100vh - 90px);
+        object-fit: contain;
+      }
+
+      .lightbox-sidebar {
+        display: grid;
+        grid-template-columns: 1fr;
+        align-content: start;
+        gap: 10px;
+        max-height: calc(100vh - 80px);
+        overflow-y: auto;
+        padding-right: 2px;
+      }
+
+      .lightbox-thumb {
+        display: block;
+        width: 100%;
+        padding: 0;
+        border: 2px solid transparent;
+        border-radius: 7px;
+        background: #f2eee7;
+        overflow: hidden;
+        cursor: pointer;
+      }
+
+      .lightbox-thumb.active {
+        border-color: var(--brand);
+      }
+
+      .lightbox-thumb img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 1;
+        object-fit: cover;
       }
 
       details {
@@ -525,6 +654,32 @@
 
         .field-grid {
           grid-template-columns: 1fr;
+        }
+
+        .images {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .image-lightbox {
+          padding: 10px;
+        }
+
+        .lightbox-content {
+          grid-template-columns: 1fr;
+          grid-template-rows: minmax(260px, 1fr) auto;
+          gap: 10px;
+          padding: 12px;
+        }
+
+        .lightbox-stage {
+          min-height: 260px;
+        }
+
+        .lightbox-sidebar {
+          grid-template-columns: repeat(5, minmax(48px, 1fr));
+          max-height: 84px;
+          overflow-x: auto;
+          overflow-y: hidden;
         }
       }
     </style>
@@ -655,6 +810,26 @@
       </div>
     </main>
 
+    <div id="imageLightbox" class="image-lightbox" hidden>
+      <div class="lightbox-backdrop" data-lightbox-close></div>
+      <section
+        class="lightbox-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="查看生成图片"
+      >
+        <button class="lightbox-close" type="button" data-lightbox-close aria-label="关闭图片预览">
+          ×
+        </button>
+        <div class="lightbox-content">
+          <div class="lightbox-stage">
+            <img id="lightboxImage" alt="放大查看的生成图片" />
+          </div>
+          <div id="lightboxSidebar" class="lightbox-sidebar" aria-label="生成图片缩略图"></div>
+        </div>
+      </section>
+    </div>
+
     <script>
       const bundledSkillId = "product-image-brief-planner";
 
@@ -729,6 +904,81 @@
       const referencePreviewGrid = document.querySelector("#referencePreviewGrid");
       const referenceInput = document.querySelector("#referenceImage");
       const referenceLinkInput = document.querySelector("#referenceLinkInput");
+      const imageLightbox = document.querySelector("#imageLightbox");
+      const lightboxImage = document.querySelector("#lightboxImage");
+      const lightboxSidebar = document.querySelector("#lightboxSidebar");
+      let lightboxImages = [];
+      let lightboxIndex = 0;
+      let lightboxPreviousFocus = null;
+
+      function renderLightbox() {
+        if (lightboxImages.length === 0) return;
+        const image = lightboxImages[lightboxIndex];
+        lightboxImage.src = image;
+        lightboxImage.alt = `放大查看第 ${lightboxIndex + 1} 张生成图片`;
+        lightboxSidebar.innerHTML = lightboxImages
+          .map(
+            (source, index) => `
+              <button
+                class="lightbox-thumb ${index === lightboxIndex ? "active" : ""}"
+                type="button"
+                data-lightbox-index="${index}"
+                aria-label="查看第 ${index + 1} 张生成图片"
+                aria-pressed="${index === lightboxIndex}"
+              >
+                <img src="${escapeHtml(source)}" alt="第 ${index + 1} 张生成图片缩略图" />
+              </button>
+            `,
+          )
+          .join("");
+        lightboxSidebar.querySelectorAll("[data-lightbox-index]").forEach((button) => {
+          button.addEventListener("click", () => {
+            lightboxIndex = Number(button.dataset.lightboxIndex);
+            renderLightbox();
+          });
+        });
+      }
+
+      function openLightbox(images, index) {
+        lightboxImages = images.slice();
+        lightboxIndex = Math.max(0, Math.min(Number(index) || 0, lightboxImages.length - 1));
+        lightboxPreviousFocus = document.activeElement;
+        renderLightbox();
+        imageLightbox.hidden = false;
+        document.body.style.overflow = "hidden";
+        document.querySelector(".lightbox-close").focus();
+      }
+
+      function closeLightbox() {
+        imageLightbox.hidden = true;
+        lightboxImage.removeAttribute("src");
+        lightboxSidebar.innerHTML = "";
+        lightboxImages = [];
+        document.body.style.overflow = "";
+        if (lightboxPreviousFocus && typeof lightboxPreviousFocus.focus === "function") {
+          lightboxPreviousFocus.focus();
+        }
+        lightboxPreviousFocus = null;
+      }
+
+      imageLightbox.querySelectorAll("[data-lightbox-close]").forEach((control) => {
+        control.addEventListener("click", closeLightbox);
+      });
+      document.addEventListener("keydown", (event) => {
+        if (imageLightbox.hidden) return;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeLightbox();
+        } else if (event.key === "ArrowLeft" && lightboxImages.length > 1) {
+          event.preventDefault();
+          lightboxIndex = (lightboxIndex - 1 + lightboxImages.length) % lightboxImages.length;
+          renderLightbox();
+        } else if (event.key === "ArrowRight" && lightboxImages.length > 1) {
+          event.preventDefault();
+          lightboxIndex = (lightboxIndex + 1) % lightboxImages.length;
+          renderLightbox();
+        }
+      });
 
       function arrangeJobForm() {
         const productColumn = uploadBox.closest("label").parentElement;
@@ -825,6 +1075,8 @@
             ? "未连接"
             : data.skillId === "local-codex-smoke-test"
               ? "已连接，Codex 测试模式"
+            : Array.isArray(data.availableExecutionModes) && data.availableExecutionModes.length > 1
+              ? "已连接，双模式可用"
             : data.skillAvailable
               ? "已连接，桌面任务模式"
               : "已连接，Skill 未安装";
@@ -984,8 +1236,11 @@
             }
             ${
               images.length > 0
-                ? `<div class="images">${images
-                    .map((image) => `<img src="${image}" alt="候选图" />`)
+                ? `<div class="images" aria-label="生成图片缩略图">${images
+                    .map(
+                      (image, index) =>
+                        `<button class="image-thumb" type="button" data-image-index="${index}" aria-label="放大查看第 ${index + 1} 张生成图片"><img src="${escapeHtml(image)}" alt="第 ${index + 1} 张生成图片缩略图" /></button>`,
+                    )
                     .join("")}</div>`
                 : '<p class="empty">还没有真实生成图片。图片生成后会自动出现在这里。</p>'
             }
@@ -1002,6 +1257,11 @@
               <pre>${escapeHtml(data.codexPrompt)}</pre>
             </details>
           `;
+        resultBox.querySelectorAll("[data-image-index]").forEach((button) => {
+          button.addEventListener("click", () => {
+            openLightbox(images, Number(button.dataset.imageIndex));
+          });
+        });
         const continueButton = resultBox.querySelector("[data-continue-job]");
         if (continueButton) {
           continueButton.addEventListener("click", async () => {
