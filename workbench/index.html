@@ -418,7 +418,7 @@
 
       .images {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
         gap: 10px;
         margin-top: 12px;
       }
@@ -476,7 +476,8 @@
         position: relative;
         z-index: 1;
         width: min(1120px, 100%);
-        max-height: min(860px, calc(100vh - 40px));
+        height: min(860px, calc(100vh - 40px));
+        min-height: 0;
         border: 1px solid #bcb3a6;
         border-radius: 10px;
         background: var(--panel);
@@ -504,8 +505,8 @@
         display: grid;
         grid-template-columns: minmax(0, 1fr) 150px;
         gap: 16px;
-        min-height: 420px;
-        max-height: min(860px, calc(100vh - 40px));
+        height: 100%;
+        min-height: 0;
         padding: 20px;
       }
 
@@ -513,7 +514,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        min-height: 380px;
+        min-height: 0;
         border: 1px solid #ded6ca;
         border-radius: 8px;
         background: #f2eee7;
@@ -533,9 +534,13 @@
         grid-template-columns: 1fr;
         align-content: start;
         gap: 10px;
+        min-height: 0;
+        height: 100%;
         max-height: calc(100vh - 80px);
         overflow-y: auto;
+        overscroll-behavior: contain;
         padding-right: 2px;
+        scrollbar-gutter: stable;
       }
 
       .lightbox-thumb {
@@ -657,7 +662,7 @@
         }
 
         .images {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
         }
 
         .image-lightbox {
@@ -667,19 +672,26 @@
         .lightbox-content {
           grid-template-columns: 1fr;
           grid-template-rows: minmax(260px, 1fr) auto;
+          height: 100%;
           gap: 10px;
           padding: 12px;
         }
 
         .lightbox-stage {
-          min-height: 260px;
+          min-height: 0;
         }
 
         .lightbox-sidebar {
-          grid-template-columns: repeat(5, minmax(48px, 1fr));
-          max-height: 84px;
+          display: flex;
+          flex-wrap: nowrap;
+          height: 76px;
+          max-height: none;
           overflow-x: auto;
           overflow-y: hidden;
+        }
+
+        .lightbox-thumb {
+          flex: 0 0 64px;
         }
       }
     </style>
@@ -961,6 +973,13 @@
         lightboxPreviousFocus = null;
       }
 
+      function stepLightbox(delta) {
+        if (lightboxImages.length < 2) return;
+        lightboxIndex =
+          (lightboxIndex + delta + lightboxImages.length) % lightboxImages.length;
+        renderLightbox();
+      }
+
       imageLightbox.querySelectorAll("[data-lightbox-close]").forEach((control) => {
         control.addEventListener("click", closeLightbox);
       });
@@ -969,14 +988,12 @@
         if (event.key === "Escape") {
           event.preventDefault();
           closeLightbox();
-        } else if (event.key === "ArrowLeft" && lightboxImages.length > 1) {
+        } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
           event.preventDefault();
-          lightboxIndex = (lightboxIndex - 1 + lightboxImages.length) % lightboxImages.length;
-          renderLightbox();
-        } else if (event.key === "ArrowRight" && lightboxImages.length > 1) {
+          stepLightbox(-1);
+        } else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
           event.preventDefault();
-          lightboxIndex = (lightboxIndex + 1) % lightboxImages.length;
-          renderLightbox();
+          stepLightbox(1);
         }
       });
 
