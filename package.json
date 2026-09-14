@@ -1,5 +1,5 @@
 {
-  "name": "zuoyi-ai-image-assistant",
+  "name": "demo-ai-image-assistant",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -7,13 +7,14 @@
   },
   "scripts": {
     "local": "node bridge/start-local.mjs",
+    "local:test-codex": "node bridge/start-smoke-test.mjs",
     "bridge": "node bridge/codex-job-server.mjs",
     "workbench:sample": "node bridge/submit-job.mjs bridge/sample-amazon-job.json",
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "node --test tests/local-bridge.test.mjs",
-    "check": "node --check bridge/codex-job-server.mjs && node --check bridge/start-local.mjs && node --check bridge/submit-job.mjs",
+    "check": "node --check bridge/codex-job-server.mjs && node --check bridge/start-local.mjs && node --check bridge/start-smoke-test.mjs && node --check bridge/submit-job.mjs",
     "test:site": "pnpm run build && node --test tests/rendered-html.test.mjs",
     "db:generate": "drizzle-kit generate"
   },

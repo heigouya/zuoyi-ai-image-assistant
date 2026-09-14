@@ -8,5 +8,5 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-printf '%s\n' "========================================" " Zuoyi AI Image Assistant - Local" "========================================" "" "Keep this window open while using the workbench." "Press Ctrl+C to stop." ""
+printf '%s\n' "========================================" " Demo AI Image Assistant - Local" "========================================" "" "Keep this window open while using the workbench." "Press Ctrl+C to stop." ""
 exec node "bridge/start-local.mjs"

@@ -12,7 +12,7 @@ if errorlevel 1 (
 )
 
 echo ========================================
-echo  Zuoyi AI Image Assistant - Local
+echo  Demo AI Image Assistant - Local
 echo ========================================
 echo.
 echo Keep this window open while using the workbench.

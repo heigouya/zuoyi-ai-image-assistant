@@ -1,0 +1,4 @@
+interface:
+  display_name: "产品图套图生成"
+  short_description: "根据商品资料规划正式套图提示词并生成可质检的候选图片"
+  default_prompt: "Use $product-image-brief-planner to plan and generate a marketplace-ready product image suite from this submission."
