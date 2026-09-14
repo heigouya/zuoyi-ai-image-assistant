@@ -1,4 +1,4 @@
-# 佐易 AI 图像助理
+# Demo AI 图像助理
 
 本项目当前提供跨平台的本地 AI 出图工作台。页面保持原有设计，任务由本机
 Codex 和本地 Skill 执行。
@@ -28,9 +28,9 @@ Codex 和本地 Skill 执行。
 
 ## 一键启动
 
-Windows：双击 `start-zuoyi-workbench.cmd`。
+Windows：双击 `start-demo-workbench.cmd`。
 
-macOS：首次运行时右键打开 `start-zuoyi-workbench.command`，之后可以直接双击。
+macOS：首次运行时右键打开 `start-demo-workbench.command`，之后可以直接双击。
 
 终端也可以运行：
 

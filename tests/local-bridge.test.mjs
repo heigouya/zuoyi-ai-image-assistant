@@ -73,7 +73,7 @@ function backgroundPayload(productName) {
 }
 
 test("local bridge serves the workbench and creates an isolated job", async () => {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "zuoyi-local-test-"));
+  const dataDir = await mkdtemp(path.join(tmpdir(), "demo-local-test-"));
   const { child, url } = await startBridge(dataDir);
 
   try {
@@ -86,7 +86,7 @@ test("local bridge serves the workbench and creates an isolated job", async () =
 
     const pageResponse = await fetch(url);
     assert.equal(pageResponse.status, 200);
-    assert.match(await pageResponse.text(), /佐易-AI图像助理/u);
+    assert.match(await pageResponse.text(), /Demo-AI图像助理/u);
 
     const payload = {
       templateId: "amazon-a-plus-suite",
@@ -137,7 +137,7 @@ test("local bridge serves the workbench and creates an isolated job", async () =
 });
 
 test("local bridge discovers the bundled Codex smoke-test skill", async () => {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "zuoyi-skill-test-"));
+  const dataDir = await mkdtemp(path.join(tmpdir(), "demo-skill-test-"));
   const { child, url } = await startBridge(dataDir, {
     LOCAL_SKILL_ID: "local-codex-smoke-test",
   });
@@ -157,7 +157,7 @@ test("local bridge discovers the bundled Codex smoke-test skill", async () => {
 });
 
 test("local bridge creates a persistent desktop task with an explicit project skill", async () => {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "zuoyi-desktop-task-test-"));
+  const dataDir = await mkdtemp(path.join(tmpdir(), "demo-desktop-task-test-"));
   const fakeCodex = path.join(projectRoot, "tests", "fake-codex-app-server.mjs");
   const { child, url } = await startBridge(dataDir, {
     ENABLE_CODEX_EXEC: "1",
@@ -211,7 +211,7 @@ test("local bridge creates a persistent desktop task with an explicit project sk
 });
 
 test("visible mode opens a native Codex composer without starting a background thread", async () => {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "zuoyi-visible-task-test-"));
+  const dataDir = await mkdtemp(path.join(tmpdir(), "demo-visible-task-test-"));
   const { child, url } = await startBridge(dataDir, { ENABLE_CODEX_EXEC: "1" });
 
   try {
@@ -252,7 +252,7 @@ test("visible mode opens a native Codex composer without starting a background t
 });
 
 test("background mode validates result.md and automatically continues the same task", async () => {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "zuoyi-auto-continue-test-"));
+  const dataDir = await mkdtemp(path.join(tmpdir(), "demo-auto-continue-test-"));
   const fakeCodex = path.join(projectRoot, "tests", "fake-codex-app-server.mjs");
   const { child, url } = await startBridge(dataDir, {
     ENABLE_CODEX_EXEC: "1",
@@ -286,7 +286,7 @@ test("background mode validates result.md and automatically continues the same t
 });
 
 test("a running background task accepts a manual continuation instruction", async () => {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "zuoyi-manual-continue-test-"));
+  const dataDir = await mkdtemp(path.join(tmpdir(), "demo-manual-continue-test-"));
   const fakeCodex = path.join(projectRoot, "tests", "fake-codex-app-server.mjs");
   const { child, url } = await startBridge(dataDir, {
     ENABLE_CODEX_EXEC: "1",

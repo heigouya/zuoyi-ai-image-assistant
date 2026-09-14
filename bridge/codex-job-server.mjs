@@ -724,8 +724,8 @@ async function executeJob(job) {
     (async () => {
       await request("initialize", {
         clientInfo: {
-          name: "zuoyi_local_web",
-          title: "佐易本地网页",
+          name: "demo_local_web",
+          title: "Demo本地网页",
           version: "0.2.0",
         },
         capabilities: { experimentalApi: true },

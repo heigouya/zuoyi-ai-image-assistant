@@ -233,7 +233,7 @@ export default function Home() {
         <header className="flex flex-col gap-4 border-b border-[#d6cec1] pb-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase text-[#697164]">
-              Zuoyi Image Assistant
+              Demo Image Assistant
             </p>
             <h1 className="mt-2 text-3xl font-semibold sm:text-4xl">
               {cn.appName}
